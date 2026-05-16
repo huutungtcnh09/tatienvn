@@ -7,6 +7,8 @@ ENV NPM_CONFIG_FETCH_TIMEOUT=120000
 ENV NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=30000
 ENV NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=180000
 ENV NPM_CONFIG_FETCH_RETRIES=10
+ARG DATABASE_URL="mysql://placeholder:placeholder@127.0.0.1:3306/placeholder"
+ENV DATABASE_URL=$DATABASE_URL
 
 COPY package.json package-lock.json ./
 COPY services/api/package.json services/api/package.json
