@@ -1,0 +1,29 @@
+{
+  "name": "app-kd-system",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "services/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev -w services/api",
+    "dev:head": "npm run dev -w apps/head-office",
+    "dev:store": "npm run dev -w apps/store-pos",
+    "dev:web": "npm run dev -w apps/corporate-web",
+    "dev:mobile": "npm run dev -w apps/mobile",
+    "test:purchase:trade-rebate": "powershell -ExecutionPolicy Bypass -File ./scripts/purchase-trade-rebate-regression.ps1",
+    "test:purchase:rebate-batch": "powershell -ExecutionPolicy Bypass -File ./scripts/purchase-rebate-batch-regression.ps1",
+    "test:purchase:rebate-diagnose": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/purchase-rebate-diagnose.ps1",
+    "test:purchase:all": "powershell -ExecutionPolicy Bypass -File ./scripts/purchase-all-regression.ps1",
+    "test:purchase:all:ci": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/purchase-all-regression-ci.ps1",
+    "build": "npm run build --workspaces",
+    "lint": "npm run lint --workspaces",
+    "format": "npm run format --workspaces",
+    "check:text": "node scripts/check-text-quality.mjs",
+    "hooks:install": "node scripts/install-git-hooks.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

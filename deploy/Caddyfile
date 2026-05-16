@@ -1,0 +1,19 @@
+{
+  email admin@tatien.vn
+}
+
+tatien.vn, www.tatien.vn {
+  reverse_proxy corporate-web:80
+}
+
+admin.tatien.vn {
+  reverse_proxy head-office:80
+}
+
+pos.tatien.vn {
+  reverse_proxy store-pos:80
+}
+
+api.tatien.vn {
+  reverse_proxy api:4000
+}

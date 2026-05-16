@@ -1,0 +1,12 @@
+.git
+.github
+node_modules
+**/node_modules
+**/dist
+**/.vite
+**/.DS_Store
+*.log
+npm-debug.log*
+.vscode
+coverage
+services/api/uploads

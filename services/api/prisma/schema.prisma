@@ -1,0 +1,926 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  HEAD_MANAGER
+  ACCOUNTANT
+  MARKETING
+  STORE_MANAGER
+  SALES_STAFF
+  SALE_MOBILE
+}
+
+enum OrderStatus {
+  DRAFT
+  CONFIRMED
+  PROCESSING
+  DELIVERED
+  COMPLETED
+  CANCELLED
+  RETURNED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  CASH
+  BANK_TRANSFER
+  CARD
+  MIXED
+}
+
+enum PartnerTransactionType {
+  SALE_ORDER
+  PAYMENT_RECEIPT
+  RECEIPT_VOID
+  DISCOUNT_VOUCHER
+  RETURN_ORDER
+  PURCHASE_ORDER
+  PURCHASE_VOID
+  PAYMENT_TO_SUPPLIER
+  OPENING_BALANCE
+  SUPPLIER_REBATE
+}
+
+enum ReceiptType {
+  PAYMENT
+  DISCOUNT
+  PREPAYMENT
+}
+
+enum ReceiptStatus {
+  ACTIVE
+  VOIDED
+}
+
+enum OrgRoleType {
+  STORE_MANAGER
+  STORE_SUPERVISOR
+  DEPUTY_MANAGER
+  CASHIER
+  WAREHOUSE_STAFF
+  PURCHASER
+  CUSTOMER_SERVICE
+  CEO
+  CHIEF_ACCOUNTANT
+}
+
+enum OrgScopeType {
+  STORE
+}
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  passwordHash String     @map("password_hash")
+  fullName     String     @map("full_name")
+  isActive     Boolean    @default(true) @map("is_active")
+  roles        String     @default("STORE_MANAGER")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  createdOrders     SalesOrder[] @relation("OrderCreator")
+  salesOrdersAsSalesPerson     SalesOrder[] @relation("OrderSalesPerson")
+  salesOrdersAsStoreManager    SalesOrder[] @relation("OrderStoreManager")
+  salesOrdersAsStoreSupervisor SalesOrder[] @relation("OrderStoreSupervisor")
+  collectedReceipts Receipt[] @relation("ReceiptCollector")
+  roleAssignments   RbacUserRole[]
+  orgAssignments    OrgAssignmentHistory[] @relation("OrgAssignmentUser")
+  orgPositionAssignments OrgPositionAssignmentHistory[] @relation("OrgPositionAssignmentUser")
+  handoversFrom OrgPositionHandoverLog[] @relation("HandoverFromUser")
+  handoversTo   OrgPositionHandoverLog[] @relation("HandoverToUser")
+  customerNotesCreated CustomerNote[] @relation("CustomerNoteCreator")
+  customAudiencesCreated MarketingCustomAudience[] @relation("CustomAudienceCreator")
+  voidedReceipts Receipt[] @relation("ReceiptVoider")
+  customerWatchlist CustomerWatchlist[]
+
+  @@map("user")
+}
+
+model Store {
+  id          String      @id @default(cuid())
+  code        String      @unique
+  name        String
+  isWarehouse Boolean     @default(false) @map("is_warehouse")
+  createdAt   DateTime    @default(now()) @map("created_at")
+
+  inventory   Inventory[]
+  inventoryMovements InventoryMovement[]
+  salesOrders SalesOrder[]
+  receipts    Receipt[]
+  purchaseOrders PurchaseOrder[]
+  ownedPartners Partner[] @relation("PartnerOwnerStore")
+  orgAssignments OrgAssignmentHistory[]
+  orgPositions   OrgPosition[]
+
+  @@map("store")
+}
+
+model OrgAssignmentHistory {
+  id            String       @id @default(cuid())
+  userId        String       @map("user_id")
+  roleType      OrgRoleType  @map("role_type")
+  scopeType     OrgScopeType @default(STORE) @map("scope_type")
+  storeId       String?      @map("store_id")
+  effectiveFrom DateTime     @map("effective_from")
+  effectiveTo   DateTime?    @map("effective_to")
+  decisionNo    String?      @map("decision_no")
+  note          String?
+  createdBy     String?      @map("created_by")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+
+  user          User         @relation("OrgAssignmentUser", fields: [userId], references: [id])
+  store         Store?       @relation(fields: [storeId], references: [id])
+
+  @@index([userId, roleType, effectiveFrom])
+  @@index([storeId, roleType, effectiveFrom])
+  @@map("org_assignment_history")
+}
+
+model OrgPosition {
+  id            String       @id @default(cuid())
+  code          String       @unique
+  name          String
+  roleType      OrgRoleType  @map("role_type")
+  scopeType     OrgScopeType @default(STORE) @map("scope_type")
+  storeId       String?      @map("store_id")
+  isActive      Boolean      @default(true) @map("is_active")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+
+  store         Store?       @relation(fields: [storeId], references: [id])
+  assignments   OrgPositionAssignmentHistory[]
+  handoverLogs  OrgPositionHandoverLog[]
+  accountOwnerPartners Partner[] @relation("PartnerOwnerPosition")
+  salesOwnerOrders SalesOrder[] @relation("OrderSalesOwnerPosition")
+  managerOrders SalesOrder[] @relation("OrderStoreManagerPosition")
+  supervisorOrders SalesOrder[] @relation("OrderStoreSupervisorPosition")
+
+  @@index([storeId, roleType, isActive])
+  @@map("org_position")
+}
+
+model OrgPositionAssignmentHistory {
+  id            String     @id @default(cuid())
+  positionId    String     @map("position_id")
+  userId        String     @map("user_id")
+  effectiveFrom DateTime   @map("effective_from")
+  effectiveTo   DateTime?  @map("effective_to")
+  decisionNo    String?    @map("decision_no")
+  note          String?
+  createdBy     String?    @map("created_by")
+  createdAt     DateTime   @default(now()) @map("created_at")
+  updatedAt     DateTime   @updatedAt @map("updated_at")
+
+  position      OrgPosition @relation(fields: [positionId], references: [id])
+  user          User        @relation("OrgPositionAssignmentUser", fields: [userId], references: [id])
+
+  @@index([positionId, effectiveFrom])
+  @@index([userId, effectiveFrom])
+  @@map("org_position_assignment_history")
+}
+
+model Category {
+  id        String   @id @default(cuid())
+  name      String
+  parentId  String?  @map("parent_id")
+  parent    Category? @relation("CategoryTree", fields: [parentId], references: [id])
+  children  Category[] @relation("CategoryTree")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  products  Product[]
+
+  @@map("category")
+}
+
+model BusinessArea {
+  id          String         @id @default(cuid())
+  code        String         @unique
+  name        String
+  description String?        @db.Text
+  parentId    String?        @map("parent_id")
+  displayOrder Int          @default(0) @map("display_order")
+  isActive    Boolean        @default(true) @map("is_active")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  parent      BusinessArea?  @relation("BusinessAreaTree", fields: [parentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  children    BusinessArea[] @relation("BusinessAreaTree")
+  partners    Partner[]
+
+  @@index([parentId])
+  @@index([isActive])
+  @@map("business_area")
+}
+
+model Partner {
+  id              String    @id @default(cuid())
+  code            String    @unique
+  name            String
+  ledgerCode      String?   @map("ledger_code")
+  phone           String?
+  phone2          String?   @map("phone_2")
+  phone3          String?   @map("phone_3")
+  email           String?
+  address         String?
+  isCustomer      Boolean   @default(false) @map("is_customer")
+  isSupplier      Boolean   @default(false) @map("is_supplier")
+  isCarrier       Boolean   @default(false) @map("is_carrier")
+  businessAreaId  String?   @map("business_area_id")
+  ownerStoreId    String?   @map("owner_store_id")
+  accountOwnerPositionId String? @map("account_owner_position_id")
+  openingBalance  Decimal   @default(0) @db.Decimal(18, 2) @map("opening_balance")
+  netBalance      Decimal   @default(0) @db.Decimal(18, 2) @map("net_balance")
+  rewardPoints    Int       @default(0) @map("reward_points")
+  customerPriceTier CustomerPriceTier? @map("customer_price_tier")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  businessArea    BusinessArea? @relation(fields: [businessAreaId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  ownerStore      Store?    @relation("PartnerOwnerStore", fields: [ownerStoreId], references: [id])
+  accountOwnerPosition OrgPosition? @relation("PartnerOwnerPosition", fields: [accountOwnerPositionId], references: [id])
+  handoverLogs    OrgPositionHandoverLog[]
+  priceLists      CustomerPriceList[]
+  transactions    PartnerTransactionLog[]
+  orders          SalesOrder[]
+  receipts        Receipt[]
+  purchaseOrders  PurchaseOrder[]
+  purchasePayments PurchasePayment[]
+  purchaseRebates  PurchaseRebate[]
+  notes           CustomerNote[]
+  customAudienceDetails MarketingCustomAudienceDetail[]
+  watchlistEntries CustomerWatchlist[]
+  giftRedemptions GiftRedemption[]
+
+  @@index([ownerStoreId, isCustomer])
+  @@index([businessAreaId])
+  @@map("partner")
+}
+
+model MarketingCustomAudience {
+  id               String   @id @default(cuid())
+  name             String
+  description      String?  @db.Text
+  facebookAudienceId String? @map("facebook_audience_id")
+  adAccountId      String?  @map("ad_account_id")
+  createdByUserId  String?  @map("created_by_user_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  createdBy        User?    @relation("CustomAudienceCreator", fields: [createdByUserId], references: [id])
+  details          MarketingCustomAudienceDetail[]
+
+  @@index([facebookAudienceId])
+  @@index([createdByUserId])
+  @@map("marketing_custom_audience")
+}
+
+model MarketingCustomAudienceDetail {
+  id               String   @id @default(cuid())
+  customAudienceId String   @map("custom_audience_id")
+  customerId       String   @map("customer_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  audience         MarketingCustomAudience @relation(fields: [customAudienceId], references: [id])
+  customer         Partner @relation(fields: [customerId], references: [id])
+
+  @@unique([customAudienceId, customerId], map: "mca_detail_audience_customer_uk")
+  @@index([customAudienceId])
+  @@index([customerId])
+  @@map("marketing_custom_audience_detail")
+}
+
+model MarketingFacebookConfig {
+  id          String   @id
+  appId       String?  @map("app_id")
+  appSecret   String?  @map("app_secret") @db.Text
+  accessToken String?  @map("access_token") @db.Text
+  adAccountId String?  @map("ad_account_id")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("marketing_facebook_config")
+}
+
+model CustomerNote {
+  id              String   @id @default(cuid())
+  customerId      String   @map("customer_id")
+  createdByUserId String?  @map("created_by_user_id")
+  content         String
+  isStarred       Boolean  @default(false) @map("is_starred")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  customer        Partner  @relation(fields: [customerId], references: [id])
+  creator         User?    @relation("CustomerNoteCreator", fields: [createdByUserId], references: [id])
+
+  @@index([customerId, createdAt])
+  @@index([createdByUserId, createdAt])
+  @@index([customerId, isStarred, createdAt])
+  @@map("customer_note")
+}
+
+model OrgPositionHandoverLog {
+  id          String   @id @default(cuid())
+  partnerId   String   @map("partner_id")
+  positionId  String   @map("position_id")
+  fromUserId  String   @map("from_user_id")
+  toUserId    String   @map("to_user_id")
+  reason      String?
+  createdBy   String?  @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  partner     Partner     @relation(fields: [partnerId], references: [id])
+  position    OrgPosition @relation(fields: [positionId], references: [id])
+  fromUser    User        @relation("HandoverFromUser", fields: [fromUserId], references: [id])
+  toUser      User        @relation("HandoverToUser", fields: [toUserId], references: [id])
+
+  @@index([fromUserId, createdAt])
+  @@index([toUserId, createdAt])
+  @@index([positionId, createdAt])
+  @@index([partnerId, createdAt])
+  @@map("org_position_handover_log")
+}
+
+enum CustomerPriceTier {
+  LEVEL_2
+  LEVEL_2_SPECIAL
+}
+
+enum PromotionCustomerTier {
+  ALL
+  RETAIL
+  LEVEL_2
+  LEVEL_2_SPECIAL
+}
+
+model Product {
+  id            String    @id @default(cuid())
+  sku           String    @unique
+  name          String
+  productType   ProductType @default(GOODS) @map("product_type")
+  isTrackedInOverview Boolean @default(true) @map("is_tracked_in_overview")
+  categoryId    String    @map("category_id")
+  unit          String
+  defaultPrice  Decimal   @db.Decimal(18, 2) @map("default_price")
+  level2Price   Decimal   @default(0) @db.Decimal(18, 2) @map("level_2_price")
+  level2SpecialPrice Decimal @default(0) @db.Decimal(18, 2) @map("level_2_special_price")
+  promoPrice    Decimal?  @db.Decimal(18, 2) @map("promo_price")
+  supplierQuotedPrice Decimal? @db.Decimal(18, 2) @map("supplier_quoted_price")
+  supplierQuoteNote String? @map("supplier_quote_note")
+  ingredients   String?   @map("ingredients")
+  benefits      String?   @map("benefits")
+  usageGuide    String?   @map("usage_guide")
+  rewardPoints      Int       @default(0) @map("reward_points")
+  giftPointsCost    Int       @default(0) @map("gift_points_cost")
+  costPrice         Decimal   @default(0) @db.Decimal(18, 2) @map("cost_price")
+  imageUrl      String?   @map("image_url")
+  imageGallery  Json?     @map("image_gallery")
+  isActive      Boolean   @default(true) @map("is_active")
+  isVisibleOnCorporate Boolean @default(false) @map("is_visible_on_corporate")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  category      Category  @relation(fields: [categoryId], references: [id])
+  inventory     Inventory[]
+  inventoryMovements InventoryMovement[]
+  orderItems    SalesOrderItem[]
+  priceLists    CustomerPriceList[]
+  purchaseItems PurchaseOrderItem[]
+  giftRedemptions GiftRedemption[]
+
+  @@map("product")
+}
+
+enum ProductType {
+  GOODS
+  SERVICE
+}
+
+model Inventory {
+  id               String   @id @default(cuid())
+  productId        String   @map("product_id")
+  storeId          String   @map("store_id")
+  quantity         Int      @default(0)
+  reservedQuantity Int      @default(0) @map("reserved_quantity")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  product Product @relation(fields: [productId], references: [id])
+  store   Store   @relation(fields: [storeId], references: [id])
+
+  @@unique([productId, storeId])
+  @@map("inventory")
+}
+
+model CustomerPriceList {
+  id          String   @id @default(cuid())
+  customerId  String   @map("customer_id")
+  productId   String   @map("product_id")
+  price       Decimal  @db.Decimal(18, 2)
+  status      String   @default("active")
+  createdBy   String   @map("created_by")
+  storeId     String?  @map("store_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  customer    Partner  @relation(fields: [customerId], references: [id])
+  product     Product  @relation(fields: [productId], references: [id])
+
+  @@unique([customerId, productId, status])
+  @@map("customer_price_list")
+}
+
+model SalesOrder {
+  id             String         @id @default(cuid())
+  orderNo        String         @unique @map("order_no")
+  storeId        String         @map("store_id")
+  customerId     String         @map("customer_id")
+  createdByUserId String?       @map("created_by_user_id")
+  salesPersonId  String?        @map("sales_person_id")
+  salesOwnerPositionId String?   @map("sales_owner_position_id")
+  storeManagerId String?        @map("store_manager_id")
+  storeManagerPositionId String? @map("store_manager_position_id")
+  storeSupervisorId String?     @map("store_supervisor_id")
+  storeSupervisorPositionId String? @map("store_supervisor_position_id")
+  orgSnapshotAt  DateTime?      @map("org_snapshot_at")
+  status         OrderStatus    @default(DRAFT)
+  paymentMethod  PaymentMethod  @map("payment_method")
+  subtotal       Decimal        @default(0) @db.Decimal(18, 2)
+  discountAmount Decimal        @default(0) @db.Decimal(18, 2) @map("discount_amount")
+  totalAmount    Decimal        @default(0) @db.Decimal(18, 2) @map("total_amount")
+  paidAmount     Decimal        @default(0) @db.Decimal(18, 2) @map("paid_amount")
+  appliedFromBalance Decimal    @default(0) @db.Decimal(18, 2) @map("applied_from_balance")
+  debtAmount     Decimal        @default(0) @db.Decimal(18, 2) @map("debt_amount")
+  dueDate        DateTime?      @map("due_date")
+  isReserved     Boolean        @default(false) @map("is_reserved")
+  note           String?
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+
+  store          Store          @relation(fields: [storeId], references: [id])
+  customer       Partner        @relation(fields: [customerId], references: [id])
+  createdByUser  User?          @relation("OrderCreator", fields: [createdByUserId], references: [id])
+  salesPerson    User?          @relation("OrderSalesPerson", fields: [salesPersonId], references: [id])
+  salesOwnerPosition OrgPosition? @relation("OrderSalesOwnerPosition", fields: [salesOwnerPositionId], references: [id])
+  storeManager   User?          @relation("OrderStoreManager", fields: [storeManagerId], references: [id])
+  storeManagerPosition OrgPosition? @relation("OrderStoreManagerPosition", fields: [storeManagerPositionId], references: [id])
+  storeSupervisor User?         @relation("OrderStoreSupervisor", fields: [storeSupervisorId], references: [id])
+  storeSupervisorPosition OrgPosition? @relation("OrderStoreSupervisorPosition", fields: [storeSupervisorPositionId], references: [id])
+  items          SalesOrderItem[]
+  receiptAllocations ReceiptAllocation[]
+  returns        SalesOrderReturn[]
+
+  @@index([createdByUserId])
+  @@index([salesPersonId])
+  @@index([salesOwnerPositionId])
+  @@index([storeManagerId])
+  @@index([storeManagerPositionId])
+  @@index([storeSupervisorId])
+  @@index([storeSupervisorPositionId])
+  @@map("sales_order")
+}
+
+model SalesOrderItem {
+  id             String   @id @default(cuid())
+  orderId        String   @map("order_id")
+  productId      String   @map("product_id")
+  quantity       Int
+  unitPrice      Decimal  @db.Decimal(18, 2) @map("unit_price")
+  unitCost       Decimal  @default(0) @db.Decimal(18, 2) @map("unit_cost")
+  discountAmount Decimal  @default(0) @db.Decimal(18, 2) @map("discount_amount")
+  totalAmount    Decimal  @db.Decimal(18, 2) @map("total_amount")
+  isGift         Boolean  @default(false) @map("is_gift")
+
+  order          SalesOrder @relation(fields: [orderId], references: [id])
+  product        Product    @relation(fields: [productId], references: [id])
+  returnItems    SalesOrderReturnItem[]
+
+  @@map("sales_order_item")
+}
+
+model SalesOrderReturn {
+  id        String                @id @default(cuid())
+  orderId   String                @map("order_id")
+  type      String
+  amount    Decimal               @db.Decimal(18, 2)
+  note      String?
+  restock   Boolean               @default(true)
+  createdAt DateTime              @default(now()) @map("created_at")
+
+  order     SalesOrder            @relation(fields: [orderId], references: [id])
+  items     SalesOrderReturnItem[]
+
+  @@index([orderId])
+  @@map("sales_order_return")
+}
+
+model SalesOrderReturnItem {
+  id          String          @id @default(cuid())
+  returnId    String          @map("return_id")
+  orderItemId String          @map("order_item_id")
+  quantity    Int
+  amount      Decimal         @db.Decimal(18, 2)
+
+  saleReturn  SalesOrderReturn @relation(fields: [returnId], references: [id])
+  orderItem   SalesOrderItem   @relation(fields: [orderItemId], references: [id])
+
+  @@index([returnId])
+  @@index([orderItemId])
+  @@map("sales_order_return_item")
+}
+
+model Receipt {
+  id              String        @id @default(cuid())
+  receiptNo       String        @unique @map("receipt_no")
+  customerId      String        @map("customer_id")
+  storeId         String        @map("store_id")
+  collectedByUserId String?     @map("collected_by_user_id")
+  voidedByUserId  String?       @map("voided_by_user_id")
+  type            ReceiptType   @default(PAYMENT)
+  status          ReceiptStatus @default(ACTIVE)
+  paymentMethod   PaymentMethod @map("payment_method")
+  amount          Decimal       @db.Decimal(18, 2)
+  discountAmount  Decimal       @default(0) @db.Decimal(18, 2) @map("discount_amount")
+  note            String?
+  voidReason      String?       @map("void_reason")
+  voidedAt        DateTime?     @map("voided_at")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  customer        Partner       @relation(fields: [customerId], references: [id])
+  store           Store         @relation(fields: [storeId], references: [id])
+  collectedByUser User?         @relation("ReceiptCollector", fields: [collectedByUserId], references: [id])
+  voidedByUser    User?         @relation("ReceiptVoider", fields: [voidedByUserId], references: [id])
+  allocations     ReceiptAllocation[]
+
+  @@index([collectedByUserId])
+  @@index([voidedByUserId])
+  @@index([status, createdAt])
+  @@map("receipt")
+}
+
+model ReceiptAllocation {
+  id            String     @id @default(cuid())
+  receiptId     String     @map("receipt_id")
+  orderId       String     @map("order_id")
+  appliedAmount Decimal    @db.Decimal(18, 2) @map("applied_amount")
+  createdAt     DateTime   @default(now()) @map("created_at")
+
+  receipt       Receipt    @relation(fields: [receiptId], references: [id])
+  order         SalesOrder @relation(fields: [orderId], references: [id])
+
+  @@unique([receiptId, orderId])
+  @@index([orderId])
+  @@map("receipt_allocation")
+}
+
+model Promotion {
+  id               String    @id @default(cuid())
+  name             String
+  type             String
+  customerTier     PromotionCustomerTier @default(ALL) @map("customer_tier")
+  triggerProductId String    @map("trigger_product_id")
+  triggerQty       Int       @map("trigger_qty")
+  rewardProductId  String?   @map("reward_product_id")
+  rewardQty        Int?      @map("reward_qty")
+  startDate        DateTime  @map("start_date")
+  endDate          DateTime  @map("end_date")
+  isActive         Boolean   @default(true) @map("is_active")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  @@map("promotion")
+}
+
+model PartnerTransactionLog {
+  id              String                 @id @default(cuid())
+  partnerId       String                 @map("partner_id")
+  transactionType PartnerTransactionType @map("transaction_type")
+  referenceId     String                 @map("reference_id")
+  amount          Decimal                @db.Decimal(18, 2)
+  note            String?                @db.Text
+  createdAt       DateTime               @default(now()) @map("created_at")
+
+  partner         Partner                @relation(fields: [partnerId], references: [id])
+
+  @@index([transactionType, referenceId, partnerId])
+  @@index([partnerId, transactionType, createdAt])
+  @@map("partner_transaction_log")
+}
+
+enum InventoryMovementType {
+  PURCHASE_RECEIPT
+  PURCHASE_VOID
+  ADJUSTMENT
+}
+
+model PurchaseOrder {
+  id               String     @id @default(cuid())
+  referenceId      String     @unique @map("reference_id")
+  supplierId       String     @map("supplier_id")
+  storeId          String?    @map("store_id")
+  invoiceNo        String?    @map("invoice_no")
+  documentDate     DateTime?  @db.Date @map("document_date")
+  amount           Decimal    @db.Decimal(18, 2)
+  paidAmount       Decimal    @default(0) @db.Decimal(18, 2) @map("paid_amount")
+  rebateAmount     Decimal    @default(0) @db.Decimal(18, 2) @map("rebate_amount")
+  rebateCogsAdjustment Decimal @default(0) @db.Decimal(18, 2) @map("rebate_cogs_adjustment")
+  rebateInventoryAdjustment Decimal @default(0) @db.Decimal(18, 2) @map("rebate_inventory_adjustment")
+  rebatePurchasedQty Int      @default(0) @map("rebate_purchased_qty")
+  rebateSoldQty    Int        @default(0) @map("rebate_sold_qty")
+  note             String?    @db.Text
+  voidedAt         DateTime?  @map("voided_at")
+  voidReason       String?    @db.VarChar(500) @map("void_reason")
+  voidedByUserId   String?    @map("voided_by_user_id")
+  createdAt        DateTime   @default(now()) @map("created_at")
+  updatedAt        DateTime   @updatedAt @map("updated_at")
+
+  supplier         Partner    @relation(fields: [supplierId], references: [id])
+  store            Store?     @relation(fields: [storeId], references: [id])
+  items            PurchaseOrderItem[]
+  payments         PurchasePayment[]
+  rebates          PurchaseRebate[]
+  rebateApplications PurchaseRebateApplication[]
+
+  @@index([supplierId, createdAt])
+  @@index([storeId, createdAt])
+  @@map("purchase_order")
+}
+
+model PurchaseOrderItem {
+  id                   String        @id @default(cuid())
+  purchaseOrderId      String        @map("purchase_order_id")
+  productId            String        @map("product_id")
+  quantity             Int
+  unitCost             Decimal       @db.Decimal(18, 2) @map("unit_cost")
+  lineAmount           Decimal       @db.Decimal(18, 2) @map("line_amount")
+  createdAt            DateTime      @default(now()) @map("created_at")
+
+  purchaseOrder        PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  product              Product       @relation(fields: [productId], references: [id])
+
+  @@index([purchaseOrderId])
+  @@index([productId])
+  @@map("purchase_order_item")
+}
+
+model PurchasePayment {
+  id              String      @id @default(cuid())
+  purchaseOrderId String      @map("purchase_order_id")
+  supplierId      String      @map("supplier_id")
+  cashAmount      Decimal     @db.Decimal(18, 2) @map("cash_amount")
+  settledAmount   Decimal     @db.Decimal(18, 2) @map("settled_amount")
+  note            String?     @db.Text
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  supplier        Partner       @relation(fields: [supplierId], references: [id])
+
+  @@index([purchaseOrderId, createdAt])
+  @@index([supplierId, createdAt])
+  @@map("purchase_payment")
+}
+
+model PurchaseRebate {
+  id                        String      @id @default(cuid())
+  purchaseOrderId           String      @map("purchase_order_id")
+  supplierId                String      @map("supplier_id")
+  rebateBatchId             String?     @map("rebate_batch_id")
+  isPayableOnly             Boolean     @default(false) @map("is_payable_only")
+  label                     String
+  amount                    Decimal     @db.Decimal(18, 2)
+  note                      String?     @db.Text
+  purchasedQty              Int         @default(0) @map("purchased_qty")
+  soldQty                   Int         @default(0) @map("sold_qty")
+  soldRatio                 Decimal     @default(0) @db.Decimal(9, 6) @map("sold_ratio")
+  cogsAdjustmentAmount      Decimal     @default(0) @db.Decimal(18, 2) @map("cogs_adjustment_amount")
+  inventoryAdjustmentAmount Decimal     @default(0) @db.Decimal(18, 2) @map("inventory_adjustment_amount")
+  createdAt                 DateTime    @default(now()) @map("created_at")
+  updatedAt                 DateTime    @updatedAt @map("updated_at")
+
+  purchaseOrder             PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  supplier                  Partner       @relation(fields: [supplierId], references: [id])
+  applications              PurchaseRebateApplication[]
+
+  @@index([purchaseOrderId, createdAt])
+  @@index([supplierId, createdAt])
+  @@index([rebateBatchId])
+  @@index([isPayableOnly])
+  @@map("purchase_rebate")
+}
+
+model PurchaseRebateApplication {
+  id                     String         @id @default(cuid())
+  purchaseRebateId       String         @map("purchase_rebate_id")
+  purchaseOrderId        String         @map("purchase_order_id")
+  allocatedAmount        Decimal        @db.Decimal(18, 2) @map("allocated_amount")
+  createdAt              DateTime       @default(now()) @map("created_at")
+  updatedAt              DateTime       @updatedAt @map("updated_at")
+
+  purchaseRebate         PurchaseRebate @relation(fields: [purchaseRebateId], references: [id], onDelete: Cascade)
+  purchaseOrder          PurchaseOrder  @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+
+  @@unique([purchaseRebateId, purchaseOrderId], map: "purchase_rebate_application_rebate_po_uk")
+  @@index([purchaseOrderId], map: "purchase_rebate_application_po_idx")
+  @@index([purchaseRebateId], map: "purchase_rebate_application_rebate_idx")
+  @@map("purchase_rebate_application")
+}
+
+model InventoryMovement {
+  id              String                @id @default(cuid())
+  productId       String                @map("product_id")
+  storeId         String                @map("store_id")
+  movementType    InventoryMovementType @map("movement_type")
+  quantityDelta   Int                   @map("quantity_delta")
+  unitCost        Decimal?              @db.Decimal(18, 2) @map("unit_cost")
+  totalCost       Decimal?              @db.Decimal(18, 2) @map("total_cost")
+  referenceType   String                @map("reference_type")
+  referenceId     String                @map("reference_id")
+  note            String?               @db.Text
+  createdAt       DateTime              @default(now()) @map("created_at")
+
+  product         Product               @relation(fields: [productId], references: [id])
+  store           Store                 @relation(fields: [storeId], references: [id])
+
+  @@index([productId, storeId, createdAt])
+  @@index([referenceType, referenceId])
+  @@map("inventory_movement")
+}
+
+model CustomerWatchlist {
+  id         String   @id @default(cuid())
+  userId     String   @map("user_id")
+  customerId String   @map("customer_id")
+  source     String   @default("debt")
+  addedAt    DateTime @default(now()) @map("added_at")
+
+  user       User    @relation(fields: [userId], references: [id])
+  customer   Partner @relation(fields: [customerId], references: [id])
+
+  @@unique([userId, customerId], map: "customer_watchlist_user_customer_uk")
+  @@index([userId])
+  @@map("customer_watchlist")
+}
+
+model RbacAuditLog {
+  id            String   @id @default(cuid())
+  timestamp     DateTime @default(now())
+  actorUserId   String   @map("actor_user_id")
+  actorEmail    String?  @map("actor_email")
+  actorRoles    Json     @map("actor_roles")
+  action        String
+  targetType    String   @map("target_type")
+  targetId      String?  @map("target_id")
+  targetDisplay String?  @map("target_display")
+  before        Json?    @map("before_data")
+  after         Json?    @map("after_data")
+  metadata      Json?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([timestamp])
+  @@index([action])
+  @@index([actorUserId])
+  @@index([actorEmail])
+  @@map("rbac_audit_log")
+}
+
+model RbacRole {
+  key           String               @id
+  label         String
+  description   String?
+  isSystem      Boolean              @default(true) @map("is_system")
+  createdAt     DateTime             @default(now()) @map("created_at")
+  updatedAt     DateTime             @updatedAt @map("updated_at")
+
+  permissions   RbacRolePermission[]
+  users         RbacUserRole[]
+
+  @@map("rbac_role")
+}
+
+model RbacPermission {
+  key         String               @id
+  module      String
+  action      String
+  createdAt   DateTime             @default(now()) @map("created_at")
+  updatedAt   DateTime             @updatedAt @map("updated_at")
+
+  roles       RbacRolePermission[]
+
+  @@map("rbac_permission")
+}
+
+model RbacRolePermission {
+  id            String          @id @default(cuid())
+  roleKey       String          @map("role_key")
+  permissionKey String          @map("permission_key")
+  createdAt     DateTime        @default(now()) @map("created_at")
+
+  role          RbacRole        @relation(fields: [roleKey], references: [key])
+  permission    RbacPermission  @relation(fields: [permissionKey], references: [key])
+
+  @@unique([roleKey, permissionKey])
+  @@index([permissionKey])
+  @@map("rbac_role_permission")
+}
+
+model RbacUserRole {
+  id          String      @id @default(cuid())
+  userId      String      @map("user_id")
+  roleKey     String      @map("role_key")
+  assignedAt  DateTime    @default(now()) @map("assigned_at")
+
+  user        User        @relation(fields: [userId], references: [id])
+  role        RbacRole    @relation(fields: [roleKey], references: [key])
+
+  @@unique([userId, roleKey])
+  @@index([roleKey])
+  @@map("rbac_user_role")
+}
+
+enum ConsultationStatus {
+  NEW
+  CONTACTED
+  QUOTED
+  CLOSED
+  SPAM
+}
+
+model CorporateConsultation {
+  id          String             @id @default(cuid())
+  productId   String             @map("product_id")
+  productName String             @map("product_name")
+  fullName    String             @map("full_name")
+  phone       String
+  email       String?
+  company     String?
+  address     String?            @db.Text
+  note        String?            @db.Text
+  sourcePath  String?            @map("source_path")
+  status      ConsultationStatus @default(NEW)
+  staffNote   String?            @map("staff_note") @db.Text
+  assignedTo  String?            @map("assigned_to")
+  submittedAt DateTime           @default(now()) @map("submitted_at")
+  updatedAt   DateTime           @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@index([submittedAt])
+  @@index([phone])
+  @@map("corporate_consultation")
+}
+
+model GiftRedemption {
+  id          String    @id @default(cuid())
+  partnerId   String    @map("partner_id")
+  productId   String    @map("product_id")
+  storeId     String?   @map("store_id")
+  quantity    Int       @default(1)
+  pointsCost  Int       @map("points_cost")
+  status      String    @default("ACTIVE") @map("status")
+  note        String?   @db.Text
+  createdBy   String?   @map("created_by")
+  cancelledBy String?   @map("cancelled_by")
+  cancelledAt DateTime? @map("cancelled_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  partner  Partner @relation(fields: [partnerId], references: [id])
+  product  Product @relation(fields: [productId], references: [id])
+
+  @@index([partnerId])
+  @@index([createdAt])
+  @@map("gift_redemption")
+}
+
+enum ArticleStatus {
+  DRAFT
+  PUBLISHED
+  HIDDEN
+}
+
+model Article {
+  id          Int           @id @default(autoincrement())
+  title       String
+  slug        String        @unique
+  content     String        @db.LongText
+  coverImage  String?       @map("cover_image")
+  category    String        @default("news")
+  status      ArticleStatus @default(DRAFT)
+  seoDesc     String?       @map("seo_desc") @db.Text
+  authorId    String?       @map("author_id")
+  publishedAt DateTime?     @map("published_at")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  @@index([status, publishedAt])
+  @@index([category, status])
+  @@map("article")
+}
+
