@@ -49,6 +49,9 @@ services:
   caddy:
     image: caddy:2.8-alpine
     restart: unless-stopped
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     depends_on:
       - api
       - head-office
