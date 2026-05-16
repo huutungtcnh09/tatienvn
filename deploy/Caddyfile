@@ -14,6 +14,10 @@ pos.tatien.vn {
   reverse_proxy 127.0.0.1:18082
 }
 
+mobile.tatien.vn {
+  reverse_proxy 127.0.0.1:18083
+}
+
 api.tatien.vn {
   reverse_proxy 127.0.0.1:14000
 }

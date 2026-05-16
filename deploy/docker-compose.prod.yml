@@ -54,6 +54,18 @@ services:
     networks:
       - app_net
 
+  mobile:
+    build:
+      context: ..
+      dockerfile: apps/mobile/Dockerfile
+      args:
+        VITE_API_BASE_URL: https://api.tatien.vn
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:18083:80"
+    networks:
+      - app_net
+
   caddy:
     image: caddy:2.8-alpine
     restart: unless-stopped
@@ -63,6 +75,7 @@ services:
       - head-office
       - store-pos
       - corporate-web
+      - mobile
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
