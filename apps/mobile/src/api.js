@@ -1,4 +1,11 @@
-const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:4000/api";
+const API_ROOT = (
+  import.meta.env.VITE_API_BASE_URL ||
+  import.meta.env.VITE_API_BASE ||
+  import.meta.env.VITE_API_URL ||
+  "http://localhost:4000"
+).replace(/\/$/, "");
+
+const API_BASE = `${API_ROOT}/api`;
 
 function normalizeArray(payload) {
   if (Array.isArray(payload)) return payload;

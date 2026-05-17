@@ -1,6 +1,6 @@
 # Deploy Production Bang Docker Tren VPS
 
-Tai lieu nay ap dung cho domain `tatien.vn`, `admin.tatien.vn`, `pos.tatien.vn`, `api.tatien.vn`.
+Tai lieu nay ap dung cho domain `tatien.vn`, `admin.tatien.vn`, `pos.tatien.vn`, `mobile.tatien.vn`, `api.tatien.vn`.
 
 ## 1) Yeu cau
 
@@ -10,6 +10,7 @@ Tai lieu nay ap dung cho domain `tatien.vn`, `admin.tatien.vn`, `pos.tatien.vn`,
   - `www.tatien.vn`
   - `admin.tatien.vn`
   - `pos.tatien.vn`
+  - `mobile.tatien.vn`
   - `api.tatien.vn`
 - May VPS truy cap duoc DB `10.1.1.108:3306`.
 
@@ -69,6 +70,7 @@ docker compose -f deploy/docker-compose.prod.yml ps
 curl -I https://tatien.vn
 curl -I https://admin.tatien.vn
 curl -I https://pos.tatien.vn
+curl -I https://mobile.tatien.vn
 curl -I https://api.tatien.vn/health
 ```
 
@@ -91,6 +93,18 @@ Can them secrets trong GitHub repo:
 - `VPS_SSH_KEY` = private key deploy (khong dung password)
 
 Sau khi setup key SSH, moi lan push `main` se tu deploy.
+
+### Deploy scope (de cap nhat nhanh cho cac app frontend)
+
+- `auto` (mac dinh):
+  - Neu thay doi backend/shared/deploy core thi deploy full stack.
+  - Neu chi thay doi frontend thi chi deploy dung app frontend thay doi + caddy (khong deploy ca nhom frontend).
+- `full`: buoc workflow_dispatch deploy toan bo stack.
+- `frontend`: buoc workflow_dispatch deploy frontend theo `frontend_target`:
+  - `all`: deploy ca nhom frontend + caddy.
+  - `head-office` hoac `store-pos` hoac `mobile` hoac `corporate-web`: deploy duy nhat app duoc chon + caddy.
+
+Muc tieu la giam thoi gian cap nhat khi cac app frontend duoc chinh sua thuong xuyen, dong thoi van an toan khi co thay doi backend.
 
 ## 8) Luu y van hanh
 

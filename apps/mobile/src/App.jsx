@@ -3465,7 +3465,7 @@ function MorePanel({
     setServerHealthLoading(true);
     setServerHealthError("");
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_BASE || "http://localhost:4000"}/api/system/health`, {
+      const res = await fetch(`${MOBILE_API_BASE}/api/system/health`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const json = await res.json();
@@ -5087,7 +5087,12 @@ function SettingsIcon() {
 
 export default App;
 
-const MOBILE_API_BASE = import.meta.env.VITE_API_URL || "http://localhost:4000";
+const MOBILE_API_BASE = (
+  import.meta.env.VITE_API_BASE_URL ||
+  import.meta.env.VITE_API_BASE ||
+  import.meta.env.VITE_API_URL ||
+  "http://localhost:4000"
+).replace(/\/$/, "");
 const ARTICLE_CATEGORY_LABELS_MOBILE = {
   news: "Tin tức", knowledge: "Kiến thức", promotion: "Khuyến mại", guide: "Hướng dẫn"
 };

@@ -4,7 +4,36 @@ on:
   push:
     branches:
       - main
+    paths:
+      - "apps/**"
+      - "services/**"
+      - "shared/**"
+      - "deploy/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/deploy-vps-docker.yml"
   workflow_dispatch:
+    inputs:
+      deploy_scope:
+        description: "Scope deploy (auto/full/frontend)"
+        required: false
+        default: auto
+        type: choice
+        options:
+          - auto
+          - full
+          - frontend
+      frontend_target:
+        description: "When scope=frontend: all|head-office|store-pos|mobile|corporate-web"
+        required: false
+        default: all
+        type: choice
+        options:
+          - all
+          - head-office
+          - store-pos
+          - mobile
+          - corporate-web
 
 jobs:
   deploy:
@@ -13,16 +42,65 @@ jobs:
     steps:
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.2.0
+        env:
+          DEPLOY_SCOPE: ${{ github.event.inputs.deploy_scope || 'auto' }}
+          FRONTEND_TARGET: ${{ github.event.inputs.frontend_target || 'all' }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT }}
+          envs: DEPLOY_SCOPE,FRONTEND_TARGET
           script: |
             set -e
             cd /opt/app-kd
+            PREV_COMMIT=$(git rev-parse HEAD)
             git fetch --all
             git reset --hard origin/main
-            docker compose -f deploy/docker-compose.prod.yml down
-            docker compose -f deploy/docker-compose.prod.yml up -d --build
+
+            deploy_frontend_targets() {
+              TARGETS="$1"
+              echo "Deploy frontend targets:$TARGETS + caddy"
+              docker compose -f deploy/docker-compose.prod.yml up -d --build $TARGETS caddy
+            }
+
+            if [ "${DEPLOY_SCOPE}" = "full" ]; then
+              echo "Manual scope: full"
+              docker compose -f deploy/docker-compose.prod.yml up -d --build
+            elif [ "${DEPLOY_SCOPE}" = "frontend" ]; then
+              echo "Manual scope: frontend"
+              if [ "${FRONTEND_TARGET}" = "all" ]; then
+                deploy_frontend_targets "head-office store-pos mobile corporate-web"
+              elif [ "${FRONTEND_TARGET}" = "head-office" ] || [ "${FRONTEND_TARGET}" = "store-pos" ] || [ "${FRONTEND_TARGET}" = "mobile" ] || [ "${FRONTEND_TARGET}" = "corporate-web" ]; then
+                deploy_frontend_targets "${FRONTEND_TARGET}"
+              else
+                echo "Invalid FRONTEND_TARGET: ${FRONTEND_TARGET}"
+                exit 1
+              fi
+            else
+              echo "Auto scope by changed paths"
+              CHANGED_FILES=$(git diff --name-only "$PREV_COMMIT" HEAD || true)
+
+              if echo "$CHANGED_FILES" | grep -Eq '^(services/api/|deploy/docker-compose.prod.yml|deploy/\.env\.prod\.example|package\.json|package-lock\.json|shared/)'; then
+                echo "Detected backend/shared/deploy core changes => full deploy"
+                docker compose -f deploy/docker-compose.prod.yml up -d --build
+              else
+                TARGETS=""
+                if echo "$CHANGED_FILES" | grep -Eq '^apps/head-office/'; then TARGETS="$TARGETS head-office"; fi
+                if echo "$CHANGED_FILES" | grep -Eq '^apps/store-pos/'; then TARGETS="$TARGETS store-pos"; fi
+                if echo "$CHANGED_FILES" | grep -Eq '^apps/mobile/'; then TARGETS="$TARGETS mobile"; fi
+                if echo "$CHANGED_FILES" | grep -Eq '^apps/corporate-web/'; then TARGETS="$TARGETS corporate-web"; fi
+
+                if [ -n "$TARGETS" ]; then
+                  echo "Detected frontend app changes => selective frontend deploy"
+                  deploy_frontend_targets "$TARGETS"
+                elif echo "$CHANGED_FILES" | grep -Eq '^(deploy/Caddyfile|deploy/nginx-spa.conf)'; then
+                  echo "Detected edge config changes => deploy caddy only"
+                  docker compose -f deploy/docker-compose.prod.yml up -d --build caddy
+                else
+                  echo "No deployable changes detected; skip compose up"
+                fi
+              fi
+            fi
+
             docker compose -f deploy/docker-compose.prod.yml ps
