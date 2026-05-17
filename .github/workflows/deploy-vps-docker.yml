@@ -64,15 +64,29 @@ jobs:
               docker compose -f deploy/docker-compose.prod.yml up -d --build $TARGETS caddy
             }
 
+            run_compose_up() {
+              shift
+              ATTEMPT=1
+              until "$@"; do
+                if [ "$ATTEMPT" -ge 2 ]; then
+                  echo "Compose command failed after retry"
+                  return 1
+                fi
+                echo "Compose command failed, retrying once..."
+                ATTEMPT=$((ATTEMPT + 1))
+                sleep 3
+              done
+            }
+
             if [ "${DEPLOY_SCOPE}" = "full" ]; then
               echo "Manual scope: full"
-              docker compose -f deploy/docker-compose.prod.yml up -d --build
+              run_compose_up docker compose -f deploy/docker-compose.prod.yml up -d --build
             elif [ "${DEPLOY_SCOPE}" = "frontend" ]; then
               echo "Manual scope: frontend"
               if [ "${FRONTEND_TARGET}" = "all" ]; then
-                deploy_frontend_targets "head-office store-pos mobile corporate-web"
+                run_compose_up docker compose -f deploy/docker-compose.prod.yml up -d --build head-office store-pos mobile corporate-web caddy
               elif [ "${FRONTEND_TARGET}" = "head-office" ] || [ "${FRONTEND_TARGET}" = "store-pos" ] || [ "${FRONTEND_TARGET}" = "mobile" ] || [ "${FRONTEND_TARGET}" = "corporate-web" ]; then
-                deploy_frontend_targets "${FRONTEND_TARGET}"
+                run_compose_up docker compose -f deploy/docker-compose.prod.yml up -d --build "${FRONTEND_TARGET}" caddy
               else
                 echo "Invalid FRONTEND_TARGET: ${FRONTEND_TARGET}"
                 exit 1
@@ -83,7 +97,7 @@ jobs:
 
               if echo "$CHANGED_FILES" | grep -Eq '^(services/api/|deploy/docker-compose.prod.yml|deploy/\.env\.prod\.example|package\.json|package-lock\.json|shared/)'; then
                 echo "Detected backend/shared/deploy core changes => full deploy"
-                docker compose -f deploy/docker-compose.prod.yml up -d --build
+                run_compose_up docker compose -f deploy/docker-compose.prod.yml up -d --build
               else
                 TARGETS=""
                 if echo "$CHANGED_FILES" | grep -Eq '^apps/head-office/'; then TARGETS="$TARGETS head-office"; fi
@@ -93,10 +107,10 @@ jobs:
 
                 if [ -n "$TARGETS" ]; then
                   echo "Detected frontend app changes => selective frontend deploy"
-                  deploy_frontend_targets "$TARGETS"
+                  run_compose_up docker compose -f deploy/docker-compose.prod.yml up -d --build $TARGETS caddy
                 elif echo "$CHANGED_FILES" | grep -Eq '^(deploy/Caddyfile|deploy/nginx-spa.conf)'; then
                   echo "Detected edge config changes => deploy caddy only"
-                  docker compose -f deploy/docker-compose.prod.yml up -d --build caddy
+                  run_compose_up docker compose -f deploy/docker-compose.prod.yml up -d --build caddy
                 else
                   echo "No deployable changes detected; skip compose up"
                 fi

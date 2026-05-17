@@ -106,6 +106,8 @@ Sau khi setup key SSH, moi lan push `main` se tu deploy.
 
 Muc tieu la giam thoi gian cap nhat khi cac app frontend duoc chinh sua thuong xuyen, dong thoi van an toan khi co thay doi backend.
 
+Luu y: `mobile` build trong Docker Compose duoc ep qua `network: host` de tranh loi DNS tam thoi khi lay package tu `registry.npmjs.org`. Workflow deploy cung co retry 1 lan neu `docker compose up` bi truot vi loi mang.
+
 ## 8) Luu y van hanh
 
 - Khong commit `deploy/.env.prod` len git.
