@@ -17,6 +17,7 @@ COPY apps/corporate-web/package.json apps/corporate-web/package.json
 COPY services/api/package.json services/api/package.json
 COPY shared shared
 RUN npm ci
+RUN npm install -g vite@5.4.21
 
 COPY apps/mobile apps/mobile
 WORKDIR /app/apps/mobile
