@@ -122,16 +122,21 @@ function renderPosReceiptHtml(order) {
   const paid = Number(order?.paidAmount || 0);
   const debt = Number(order?.debtAmount ?? Math.max(total - paid, 0));
   const change = paid > total ? paid - total : 0;
+  const cashierName = order?.createdByUser?.name || order?.createdByUser?.username || "-";
   const storeName = order?.store?.name || "Cửa hàng";
   const storePhone = order?.store?.phone || "0354214678";
   const note = order?.note || "";
+  const firstAllocation = Array.isArray(order?.receiptAllocations)
+    ? order.receiptAllocations.find((row) => row?.receipt?.receiptNo)
+    : null;
+  const receiptNo = firstAllocation?.receipt?.receiptNo || null;
 
   const itemRows = orderItems.map((item, idx) => {
     const code = item?.product?.sku || item?.sku || item?.productId || "-";
     const name = item?.product?.name || item?.name || code;
     const qtyLabel = resolvePrintQuantityLabel(item);
-    const unitPrice = Number(item?.unitPrice || 0);
-    const lineTotal = Math.max(Number(item?.quantity || 0) * unitPrice, 0);
+    const unitPrice = resolvePrintFinalUnitPrice(item);
+    const lineTotal = resolvePrintLineTotal(item);
     const giftTag = item?.isGift ? " [Tặng]" : "";
     return `
       <tr class="item-row">
@@ -168,7 +173,7 @@ function renderPosReceiptHtml(order) {
   <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600;700;900&display=swap" rel="stylesheet" />
   <title>Phiếu tính tiền ${escapeHtml(orderNo)}</title>
   <style>
-    @page { size: 80mm auto; margin: 5mm 3mm; }
+    @page { size: 80mm auto; margin: 2mm 2mm 5mm; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: "Be Vietnam Pro", "Segoe UI", Arial, sans-serif;
@@ -298,16 +303,29 @@ function renderA5DeliveryNoteHtml(order) {
   const customerPhone = order?.customer?.phone || "-";
   const customerAddress = order?.customer?.address || "-";
   const note = order?.note || "";
+  const totalAmount = Number(
+    order?.totalAmount
+    || orderItems.reduce((sum, item) => {
+      const qty = Number(item?.quantity || 0);
+      const unitPrice = Number(item?.unitPrice || 0);
+      const discountAmount = Number(item?.discountAmount || 0);
+      return sum + Number(item?.totalAmount || qty * unitPrice - discountAmount);
+    }, 0)
+  );
+  const totalAmountInWords = toVietnameseMoneyWords(totalAmount);
+  const defaultCopyCount = 2;
 
   const itemRows = orderItems.map((item, index) => {
+    const code = item?.product?.sku || item?.sku || item?.productId || "-";
     const name = item?.product?.name || item?.name || item?.productId || "Sản phẩm";
     const qty = Number(item?.quantity || 0);
     const unit = resolvePrintUnitLabel(item);
-    const unitPrice = Number(item?.unitPrice || 0);
-    const lineTotal = Math.max(qty * unitPrice, 0);
+    const unitPrice = resolvePrintFinalUnitPrice(item);
+    const lineTotal = resolvePrintLineTotal(item);
     return `
       <tr>
         <td class="center">${index + 1}</td>
+        <td>${escapeHtml(code)}</td>
         <td>${escapeHtml(name)}</td>
         <td class="center">${qty}</td>
         <td class="center">${escapeHtml(unit)}</td>
@@ -317,6 +335,53 @@ function renderA5DeliveryNoteHtml(order) {
     `;
   }).join("");
 
+  const singleCopyContent = `
+  <div class="copy-head">
+    <div class="company">TÁ TIẾN</div>
+    <h1 class="title">PHIẾU GIAO HÀNG</h1>
+    <p class="subtitle">Mã đơn: <strong>${escapeHtml(orderNo)}</strong> - Ngày: ${escapeHtml(formatDateTimeVN(createdAt))}</p>
+  </div>
+
+  <div class="meta">
+    <div class="meta-row"><div class="label">Khách hàng:</div><div>${escapeHtml(customerName)}</div></div>
+    <div class="meta-row"><div class="label">Số điện thoại:</div><div>${escapeHtml(customerPhone)}</div></div>
+    <div class="meta-row"><div class="label">Địa chỉ giao hàng:</div><div>${escapeHtml(customerAddress)}</div></div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 38px">STT</th>
+        <th>Mã hàng</th>
+        <th>Tên hàng hóa, dịch vụ</th>
+        <th style="width: 60px">Số lượng</th>
+        <th style="width: 60px">ĐVT</th>
+        <th style="width: 92px">Đơn giá</th>
+        <th style="width: 92px">Thành tiền</th>
+      </tr>
+    </thead>
+    <tbody>${itemRows}</tbody>
+  </table>
+
+  <p class="note"><strong>Số tiền bằng chữ:</strong> ${escapeHtml(totalAmountInWords)}</p>
+  <p class="note"><strong>Ghi chú:</strong> ${escapeHtml(note || "Không")}</p>
+
+  <div class="sign">
+    <div class="sign-box">
+      <p class="sign-role"><strong>Người giao hàng</strong></p>
+      <p class="sign-note">(Ký, ghi rõ họ tên)</p>
+    </div>
+    <div class="sign-box">
+      <p class="sign-role"><strong>Người nhận hàng</strong></p>
+      <p class="sign-note">(Ký, ghi rõ họ tên)</p>
+    </div>
+  </div>
+  `;
+
+  const copiesHtml = Array.from({ length: defaultCopyCount }, () => (
+    `<section class="print-copy">${singleCopyContent}</section>`
+  )).join("");
+
   return `<!doctype html>
 <html>
 <head>
@@ -325,7 +390,7 @@ function renderA5DeliveryNoteHtml(order) {
   <style>
     @page { size: A5; margin: 10mm; }
     body { font-family: "Times New Roman", serif; color: #111; font-size: 14px; }
-    .company { text-align: center; font-size: 20px; font-weight: 700; margin: 0 0 4px; }
+    .company { text-align: center; font-size: 24px; font-weight: 700; margin: 0 0 4px; }
     .title { text-align: center; font-size: 24px; font-weight: 700; margin: 0 0 8px; }
     .subtitle { text-align: center; margin: 0 0 16px; }
     .meta { margin-bottom: 12px; }
@@ -342,45 +407,12 @@ function renderA5DeliveryNoteHtml(order) {
     .sign-box p { margin: 4px 0; }
     .sign-role { margin: 0; }
     .sign-note { margin: 8px 0 0; line-height: 1.25; }
+    .print-copy { page-break-after: always; }
+    .print-copy:last-child { page-break-after: auto; }
   </style>
 </head>
 <body>
-  <div class="company">TÁ TIẾN</div>
-  <h1 class="title">PHIẾU GIAO HÀNG</h1>
-  <p class="subtitle">Mã đơn: <strong>${escapeHtml(orderNo)}</strong> - Ngày: ${escapeHtml(formatDateTimeVN(createdAt))}</p>
-
-  <div class="meta">
-    <div class="meta-row"><div class="label">Khách hàng:</div><div>${escapeHtml(customerName)}</div></div>
-    <div class="meta-row"><div class="label">Số điện thoại:</div><div>${escapeHtml(customerPhone)}</div></div>
-    <div class="meta-row"><div class="label">Địa chỉ giao hàng:</div><div>${escapeHtml(customerAddress)}</div></div>
-  </div>
-
-  <table>
-    <thead>
-      <tr>
-        <th style="width: 50px">STT</th>
-        <th>Tên hàng hóa, dịch vụ</th>
-        <th style="width: 80px">Số lượng</th>
-        <th style="width: 80px">ĐVT</th>
-        <th style="width: 120px">Đơn giá</th>
-        <th style="width: 130px">Thành tiền</th>
-      </tr>
-    </thead>
-    <tbody>${itemRows}</tbody>
-  </table>
-
-  <p class="note"><strong>Ghi chú:</strong> ${escapeHtml(note || "Không")}</p>
-
-  <div class="sign">
-    <div class="sign-box">
-      <p class="sign-role"><strong>Người giao hàng</strong></p>
-      <p class="sign-note">(Ký, ghi rõ họ tên)</p>
-    </div>
-    <div class="sign-box">
-      <p class="sign-role"><strong>Người nhận hàng</strong></p>
-      <p class="sign-note">(Ký, ghi rõ họ tên)</p>
-    </div>
-  </div>
+  ${copiesHtml}
 
   <script>
     window.onload = function () {
@@ -399,7 +431,6 @@ function renderA4PaymentNoticeHtml(order) {
   const customerName = order?.customer?.name || "Khách lẻ";
   const customerPhone = order?.customer?.phone || "-";
   const customerAddress = order?.customer?.address || "-";
-  // Tính lại tạm tính: tổng giá gốc các dòng
   const subtotal = Array.isArray(order?.items)
     ? order.items.reduce((sum, item) => sum + Number(item?.unitPrice || 0) * Number(item?.quantity || 0), 0)
     : 0;
@@ -413,8 +444,8 @@ function renderA4PaymentNoticeHtml(order) {
     const name = item?.product?.name || item?.name || item?.productId || "Sản phẩm";
     const qty = Number(item?.quantity || 0);
     const unit = resolvePrintUnitLabel(item);
-    const unitPrice = Number(item?.unitPrice || 0);
-    const lineTotal = Math.max(qty * unitPrice, 0);
+    const unitPrice = resolvePrintFinalUnitPrice(item);
+    const lineTotal = resolvePrintLineTotal(item);
     return `
       <tr>
         <td class="center">${index + 1}</td>
@@ -525,7 +556,9 @@ function renderPosA4InvoiceHtml(order) {
   const customerAddress = order?.customer?.address || "-";
   const orderNo = order?.orderNo || order?.id || "-";
   const createdAt = order?.createdAt ? new Date(order.createdAt) : new Date();
-  const subtotal = Number(order?.subtotal || 0);
+  const subtotal = Array.isArray(order?.items)
+    ? order.items.reduce((sum, item) => sum + Number(item?.unitPrice || 0) * Number(item?.quantity || 0), 0)
+    : 0;
   const discount = Number(order?.discountAmount || 0);
   const total = Number(order?.totalAmount || 0);
 
@@ -662,19 +695,20 @@ function renderPosA4InvoiceHtml(order) {
 }
 
 function printOrderByTemplate(order, template) {
+  const normalizedTemplate = template || "pos";
   let html = "";
-  if (template === "a5_delivery") {
+  if (normalizedTemplate === "a5_delivery") {
     html = renderA5DeliveryNoteHtml(order);
-  } else if (template === "a4_notice") {
+  } else if (normalizedTemplate === "a4_notice") {
     html = renderA4PaymentNoticeHtml(order);
-  } else if (template === "a4_invoice") {
+  } else if (normalizedTemplate === "a4_invoice") {
     html = renderPosA4InvoiceHtml(order);
   } else {
     html = renderPosReceiptHtml(order);
   }
 
-  const popupWidth = template === "pos" ? 460 : 980;
-  const popupHeight = template === "pos" ? 760 : 860;
+  const popupWidth = normalizedTemplate === "pos" ? 460 : 980;
+  const popupHeight = normalizedTemplate === "pos" ? 760 : 860;
   const popupLeft = Math.max(Math.round((window.screen.width - popupWidth) / 2), 0);
   const popupTop = Math.max(Math.round((window.screen.height - popupHeight) / 2), 0);
   const popupFeatures = [

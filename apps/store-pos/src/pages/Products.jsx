@@ -69,6 +69,23 @@ function validateProductEditForm(form) {
   return errors;
 }
 
+function normalizeImageGallery(galleryInput = []) {
+  return (Array.isArray(galleryInput) ? galleryInput : [])
+    .filter((item) => isSupportedImageUrl(item?.url))
+    .map((item) => ({
+      url: String(item.url).trim(),
+      isDefault: item?.isDefault === true,
+      showOnCorporate: item?.showOnCorporate !== false
+    }));
+}
+
+function revokeGalleryPreview(entry) {
+  const url = String(entry?.url || "");
+  if (url.startsWith("blob:")) {
+    URL.revokeObjectURL(url);
+  }
+}
+
 function validateCreateProductForm(form) {
   const errors = {};
   const sku = form.sku.trim();
@@ -120,6 +137,7 @@ export default function Products({
   products = [],
   inventory = [],
   onQuickUpdate = async () => {},
+  onUploadProductImage = async () => null,
   onQuickUpdateConsultation = async () => {},
   onCreateCategory = async () => {},
   onCreateProduct = async () => {},
@@ -416,6 +434,8 @@ export default function Products({
     setCreateProductErrors({});
     setCreateProductMessage("");
 
+    const uploadQueue = (Array.isArray(productForm.imageGallery) ? productForm.imageGallery : []).filter((item) => item?.file instanceof File);
+
     const payload = {
       sku: productForm.sku.trim(),
       name: productForm.name.trim(),
@@ -425,14 +445,25 @@ export default function Products({
       defaultPrice: Number(productForm.defaultPrice),
       costPrice: 0,
       rewardPoints: Number(productForm.rewardPoints),
-      giftPointsCost: Number(productForm.giftPointsCost ?? 0),
-      imageGallery: (productForm.imageGallery && productForm.imageGallery.length > 0) ? productForm.imageGallery : undefined,
-      imageUrl: (productForm.imageGallery || []).find(g => g.isDefault)?.url || (productForm.imageGallery || [])[0]?.url || productForm.imageUrl.trim() || undefined
+      giftPointsCost: Number(productForm.giftPointsCost ?? 0)
     };
 
     try {
       setCreating(true);
-      await onCreateProduct(payload);
+      const created = await onCreateProduct(payload);
+      if (!created?.id) {
+        throw new Error("Không lấy được sản phẩm vừa tạo để tải ảnh.");
+      }
+
+      for (let index = 0; index < uploadQueue.length; index += 1) {
+        const image = uploadQueue[index];
+        await onUploadProductImage(created.id, image.file, {
+          makeDefault: image?.isDefault === true || index === 0,
+          showOnCorporate: image?.showOnCorporate !== false
+        });
+      }
+
+      uploadQueue.forEach(revokeGalleryPreview);
       setShowCreateProduct(false);
       setCreateProductErrors({});
       setCreateProductMessage("");
@@ -448,6 +479,7 @@ export default function Products({
         imageUrl: "",
         imageGallery: []
       });
+      alert("Đã tạo sản phẩm");
     } catch (error) {
       setCreateProductMessage(`Tạo sản phẩm thất bại: ${error?.message || error}`);
     } finally {
@@ -467,6 +499,12 @@ export default function Products({
     setDetailErrors({});
     setDetailMessage("");
 
+    const normalizedImageGallery = normalizeImageGallery(detailForm.imageGallery);
+    const nextImageUrl = normalizedImageGallery.find((g) => g.isDefault)?.url || normalizedImageGallery[0]?.url || undefined;
+    const hadExistingImages = Array.isArray(selectedProduct.imageGallery)
+      ? selectedProduct.imageGallery.length > 0
+      : Boolean(selectedProduct.imageUrl);
+
     const payload = {
       sku: detailForm.sku.trim(),
       name: detailForm.name.trim(),
@@ -479,8 +517,8 @@ export default function Products({
       ...(String(detailForm.promoPrice || "").trim() ? { promoPrice: Number(detailForm.promoPrice) } : {}),
       rewardPoints: Number(detailForm.rewardPoints),
       costPrice: Number(selectedProduct.costPrice || 0),
-      imageUrl: (detailForm.imageGallery || []).find(g => g.isDefault)?.url || (detailForm.imageGallery || [])[0]?.url || detailForm.imageUrl.trim() || undefined,
-      imageGallery: (detailForm.imageGallery && detailForm.imageGallery.length > 0) ? detailForm.imageGallery : undefined,
+      imageUrl: nextImageUrl,
+      imageGallery: normalizedImageGallery.length > 0 ? normalizedImageGallery : (hadExistingImages ? [] : undefined),
       isActive: Boolean(detailForm.isActive),
       isTrackedInOverview: Boolean(selectedProduct.isTrackedInOverview)
     };
@@ -639,16 +677,11 @@ export default function Products({
     try {
       setCreateProductUploading(true);
       setCreateProductMessage("");
-      const reader = new FileReader();
-      const dataUrl = await new Promise((resolve, reject) => {
-        reader.onload = () => resolve(String(reader.result || ""));
-        reader.onerror = () => reject(new Error("Không đọc được tệp ảnh."));
-        reader.readAsDataURL(file);
-      });
+      const previewUrl = URL.createObjectURL(file);
       setProductForm((prev) => {
         const gallery = Array.isArray(prev.imageGallery) ? prev.imageGallery : [];
         const isDefault = gallery.length === 0;
-        return { ...prev, imageGallery: [...gallery, { url: dataUrl, isDefault, showOnCorporate: true }] };
+        return { ...prev, imageGallery: [...gallery, { url: previewUrl, file, isDefault, showOnCorporate: true }] };
       });
     } catch (error) {
       setCreateProductMessage(error?.message || "Tải ảnh thất bại.");
@@ -1040,6 +1073,7 @@ export default function Products({
           onSubmit={submitDetailEdit}
           parseMoneyInput={parseMoneyInput}
           onChange={handleDetailFormChange}
+          onUploadImage={(file, options) => onUploadProductImage(selectedProduct.id, file, options)}
         />
       ) : null}
 
@@ -1258,9 +1292,10 @@ export default function Products({
                             )}
                             <button type="button" style={{ fontSize: 11, padding: "1px 5px", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 4, cursor: "pointer", color: "#dc2626" }}
                               onClick={() => setProductForm((prev) => {
+                                revokeGalleryPreview((prev.imageGallery || [])[idx]);
                                 const next = (prev.imageGallery || []).filter((_, i) => i !== idx);
                                 if (next.length > 0 && !next.some(g => g.isDefault)) next[0] = { ...next[0], isDefault: true };
-                                return { ...prev, imageGallery: next };
+                                return { ...prev, imageGallery: next, imageUrl: next.find((item) => item.isDefault)?.url || next[0]?.url || "" };
                               })}>
                               Xóa
                             </button>

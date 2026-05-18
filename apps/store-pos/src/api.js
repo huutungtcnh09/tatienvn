@@ -2,13 +2,19 @@ const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://localhost:400
 const API_BASE = `${API_BASE_URL}/api`;
 
 async function request(path, token, options = {}) {
+  const headers = {
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(options.headers || {})
+  };
+
+  const hasContentType = Object.keys(headers).some((key) => key.toLowerCase() === "content-type");
+  if (!hasContentType && !(options.body instanceof FormData)) {
+    headers["Content-Type"] = "application/json";
+  }
+
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-      ...(options.headers || {})
-    }
+    headers
   });
 
   if (!res.ok) {
@@ -117,6 +123,15 @@ export const api = {
   purchaseByReference: (token, referenceId) => request(`/purchases/${referenceId}`, token),
   updateProduct: (token, id, payload) =>
     request(`/products/${id}`, token, { method: "PUT", body: JSON.stringify(payload) }),
+  uploadProductImage: (token, id, file, options = {}) => {
+    const qs = new URLSearchParams();
+    if (options.makeDefault !== undefined) qs.set("makeDefault", String(Boolean(options.makeDefault)));
+    if (options.showOnCorporate !== undefined) qs.set("showOnCorporate", String(Boolean(options.showOnCorporate)));
+    const query = qs.toString() ? `?${qs.toString()}` : "";
+    const formData = new FormData();
+    formData.append("image", file);
+    return request(`/products/${id}/image${query}`, token, { method: "POST", body: formData });
+  },
   updateProductConsultation: (token, id, payload) => request(`/products/${id}/consultation`, token, { method: "PUT", body: JSON.stringify(payload) }),
   createOrder: (token, payload) => request("/orders", token, { method: "POST", body: JSON.stringify(payload) }),
   updateOrderItems: (token, orderId, payload) =>

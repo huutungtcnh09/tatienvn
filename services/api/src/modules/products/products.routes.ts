@@ -104,6 +104,79 @@ function resolveDefaultImageUrl(gallery: ProductImageItem[]): string | undefined
   return gallery.find((item) => item.isDefault)?.url || gallery[0].url;
 }
 
+function resolveLocalUploadedImagePath(imageUrl: string) {
+  try {
+    const parsed = new URL(imageUrl);
+    if (!parsed.pathname.startsWith("/uploads/products/")) {
+      return null;
+    }
+    const filename = path.basename(parsed.pathname);
+    if (!filename) {
+      return null;
+    }
+    return path.resolve(UPLOAD_DIR, filename);
+  } catch {
+    return null;
+  }
+}
+
+function hasImageUrlInProduct(product: { imageUrl: string | null; imageGallery: unknown }, imageUrl: string) {
+  if (product.imageUrl === imageUrl) {
+    return true;
+  }
+  const gallery = normalizeProductImageGallery(product.imageGallery, product.imageUrl);
+  return gallery.some((item) => item.url === imageUrl);
+}
+
+async function cleanupRemovedProductImages(removedUrls: string[], currentProductId: string) {
+  const uniqueRemovedUrls = Array.from(new Set(removedUrls.filter(Boolean)));
+  if (!uniqueRemovedUrls.length) {
+    return;
+  }
+
+  const otherProducts = await prisma.product.findMany({
+    where: { id: { not: currentProductId } },
+    select: { imageUrl: true, imageGallery: true }
+  });
+
+  for (const imageUrl of uniqueRemovedUrls) {
+    const stillReferenced = otherProducts.some((product) => hasImageUrlInProduct(product, imageUrl));
+    if (stillReferenced) {
+      continue;
+    }
+
+    const localPath = resolveLocalUploadedImagePath(imageUrl);
+    if (!localPath || !fs.existsSync(localPath)) {
+      continue;
+    }
+
+    try {
+      await fs.promises.unlink(localPath);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      console.warn(`Unable to delete image file ${localPath}: ${msg}`);
+    }
+  }
+}
+
+function resolveUploadBaseUrl(req: AuthRequest) {
+  const requestHost = req.get("x-forwarded-host") || req.get("host") || "localhost:4000";
+  const isLocalRequest = /^(localhost|127\.0\.0\.1)(:\d+)?$/i.test(requestHost);
+  if (isLocalRequest) {
+    const forwardedProto = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim();
+    const proto = forwardedProto || req.protocol || "http";
+    return `${proto}://${requestHost}/uploads`;
+  }
+
+  if (/^https?:\/\//i.test(UPLOAD_BASE_URL)) {
+    return UPLOAD_BASE_URL;
+  }
+
+  const forwardedProto = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim();
+  const proto = forwardedProto || req.protocol || "http";
+  return `${proto}://${requestHost}/uploads`;
+}
+
 const createProductSchema = z.object({
   sku: z.string().min(2),
   name: z.string().min(2),
@@ -347,6 +420,11 @@ router.put("/:id", requirePermission("products:update"), async (req, res) => {
     const normalizedImageGallery = hasImagePayload
       ? normalizeProductImageGallery(parsed.data.imageGallery, parsed.data.imageUrl)
       : existingImageGallery;
+    const removedImageUrls = hasImagePayload
+      ? existingImageGallery
+        .map((item) => item.url)
+        .filter((url) => !normalizedImageGallery.some((nextItem) => nextItem.url === url))
+      : [];
     const defaultImageUrl = resolveDefaultImageUrl(normalizedImageGallery)
       || (hasImagePayload ? parsed.data.imageUrl : (existingProduct.imageUrl || undefined));
 
@@ -396,6 +474,11 @@ router.put("/:id", requirePermission("products:update"), async (req, res) => {
       },
       include: { category: true }
     });
+
+    if (removedImageUrls.length) {
+      await cleanupRemovedProductImages(removedImageUrls, req.params.id);
+    }
+
     return ok(res, data);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
@@ -1469,7 +1552,8 @@ router.post("/:id/image", requirePermission("products:update"), (req: AuthReques
         fs.unlink(file.path, () => {});
         return badRequest(res, "Không tìm thấy sản phẩm");
       }
-      const imageUrl = `${UPLOAD_BASE_URL}/products/${file.filename}`;
+      const uploadBaseUrl = resolveUploadBaseUrl(req);
+      const imageUrl = `${uploadBaseUrl}/products/${file.filename}`;
       const makeDefault = String(req.query.makeDefault || "false").toLowerCase() === "true";
       const showOnCorporate = String(req.query.showOnCorporate || "false").toLowerCase() === "true";
       const existingImageGallery = normalizeProductImageGallery(product.imageGallery, product.imageUrl);

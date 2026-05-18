@@ -335,6 +335,23 @@ export async function updateProduct(token, id, payload) {
   return res.json();
 }
 
+export async function uploadProductImage(token, id, file, options = {}) {
+  const query = new URLSearchParams();
+  if (options.makeDefault !== undefined) query.set("makeDefault", String(Boolean(options.makeDefault)));
+  if (options.showOnCorporate !== undefined) query.set("showOnCorporate", String(Boolean(options.showOnCorporate)));
+  const formData = new FormData();
+  formData.append("image", file);
+
+  const res = await fetch(`${API_BASE}/products/${id}/image${query.toString() ? `?${query.toString()}` : ""}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData
+  });
+
+  if (!res.ok) throw new Error(await readApiErrorMessage(res, "Tải ảnh sản phẩm thất bại"));
+  return res.json();
+}
+
 export async function updateProductConsultation(token, id, payload) {
   const res = await fetch(`${API_BASE}/products/${id}/consultation`, {
     method: "PUT",
@@ -1483,5 +1500,20 @@ export async function deleteArticle(token, id) {
   const body = await res.json().catch(() => null);
   if (!res.ok) throw new Error(body?.message || "Xóa bài viết thất bại");
   return body;
+}
+
+export async function uploadArticleCover(token, file) {
+  const formData = new FormData();
+  formData.append("image", file);
+
+  const res = await fetch(`${API_BASE}/articles/upload-cover`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData
+  });
+
+  const body = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(body?.message || "Tải ảnh bìa thất bại");
+  return body?.data ?? body;
 }
 

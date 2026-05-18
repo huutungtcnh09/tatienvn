@@ -1,5 +1,6 @@
 import { Router } from "express";
 import os from "os";
+import { execSync } from "child_process";
 import { requireAuth } from "../../middleware/auth.js";
 import { forbidden, ok } from "../../utils/http.js";
 import { prisma } from "../../prisma.js";
@@ -69,6 +70,60 @@ router.get("/health", requireAuth, async (req: AuthRequest, res) => {
     dbStatus = "error";
   }
 
+  // DB storage size
+  let dbSizeMb: number | null = null;
+  try {
+    const rows = await prisma.$queryRaw<{ size_bytes: bigint }[]>`
+      SELECT SUM(data_length + index_length) AS size_bytes
+      FROM information_schema.tables
+      WHERE table_schema = DATABASE()
+    `;
+    const bytes = rows[0]?.size_bytes;
+    if (bytes != null) dbSizeMb = Math.round(Number(bytes) / 1024 / 1024 * 10) / 10;
+  } catch { /* ignore */ }
+
+  // Disk space
+  let diskTotalGb: number | null = null;
+  let diskUsedGb: number | null = null;
+  let diskFreeGb: number | null = null;
+  let diskUsedPct: number | null = null;
+  const parseDisk = (total: number, used: number, free: number) => {
+    diskTotalGb = Math.round(total / 1024 / 1024 / 1024 * 10) / 10;
+    diskUsedGb  = Math.round(used  / 1024 / 1024 / 1024 * 10) / 10;
+    diskFreeGb  = Math.round(free  / 1024 / 1024 / 1024 * 10) / 10;
+    diskUsedPct = Math.round((used / total) * 100);
+  };
+  if (os.platform() !== "win32") {
+    // Linux / macOS
+    try {
+      const dfOut = execSync("df -B1 /", { timeout: 5000 }).toString();
+      const line = dfOut.split("\n")[1];
+      if (line) {
+        const parts = line.trim().split(/\s+/);
+        const total = parseInt(parts[1], 10);
+        const used  = parseInt(parts[2], 10);
+        const free  = parseInt(parts[3], 10);
+        if (!isNaN(total) && total > 0) parseDisk(total, used, free);
+      }
+    } catch { /* ignore */ }
+  } else {
+    // Windows: wmic logicaldisk
+    try {
+      const out = execSync(
+        "wmic logicaldisk where \"DeviceID='C:'\" get Size,FreeSpace /format:value",
+        { timeout: 5000 }
+      ).toString();
+      const freeMatch = out.match(/FreeSpace=(\d+)/);
+      const sizeMatch = out.match(/Size=(\d+)/);
+      if (freeMatch && sizeMatch) {
+        const total = parseInt(sizeMatch[1], 10);
+        const free  = parseInt(freeMatch[1], 10);
+        const used  = total - free;
+        if (total > 0) parseDisk(total, used, free);
+      }
+    } catch { /* ignore */ }
+  }
+
   return ok(res, {
     os: {
       platform: os.platform(),
@@ -94,7 +149,14 @@ router.get("/health", requireAuth, async (req: AuthRequest, res) => {
     },
     database: {
       status: dbStatus,
-      pingMs: dbPingMs
+      pingMs: dbPingMs,
+      sizeMb: dbSizeMb
+    },
+    disk: {
+      totalGb: diskTotalGb,
+      usedGb: diskUsedGb,
+      freeGb: diskFreeGb,
+      usedPct: diskUsedPct
     }
   });
 });

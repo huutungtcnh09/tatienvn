@@ -172,7 +172,7 @@ function renderPosReceiptHtml(order) {
   <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600;700;900&display=swap" rel="stylesheet" />
   <title>Phiếu tính tiền ${escapeHtml(orderNo)}</title>
   <style>
-    @page { size: 80mm auto; margin: 5mm 8mm; }
+    @page { size: 80mm auto; margin: 2mm 2mm 5mm; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: "Be Vietnam Pro", "Segoe UI", Arial, sans-serif;
@@ -350,13 +350,13 @@ function renderA5DeliveryNoteHtml(order) {
   <table>
     <thead>
       <tr>
-        <th style="width: 42px">STT</th>
-        <th style="width: 96px">Mã hàng</th>
+        <th style="width: 38px">STT</th>
+        <th>Mã hàng</th>
         <th>Tên hàng hóa, dịch vụ</th>
-        <th style="width: 80px">Số lượng</th>
-        <th style="width: 80px">ĐVT</th>
+        <th style="width: 60px">Số lượng</th>
+        <th style="width: 60px">ĐVT</th>
         <th style="width: 92px">Đơn giá</th>
-        <th style="width: 106px">Thành tiền</th>
+        <th style="width: 92px">Thành tiền</th>
       </tr>
     </thead>
     <tbody>${itemRows}</tbody>
@@ -389,7 +389,7 @@ function renderA5DeliveryNoteHtml(order) {
   <style>
     @page { size: A5; margin: 10mm; }
     body { font-family: "Times New Roman", serif; color: #111; font-size: 14px; }
-    .company { text-align: center; font-size: 20px; font-weight: 700; margin: 0 0 4px; }
+    .company { text-align: center; font-size: 24px; font-weight: 700; margin: 0 0 4px; }
     .title { text-align: center; font-size: 24px; font-weight: 700; margin: 0 0 8px; }
     .subtitle { text-align: center; margin: 0 0 16px; }
     .meta { margin-bottom: 12px; }
@@ -3309,7 +3309,7 @@ export default function PosScreen({
                   />
                   <div>
                     <strong>Mẫu POS (mặc định)</strong>
-                    <p>Khổ 80mm, phù hợp máy in hóa đơn tại quầy.</p>
+                    <p>📄 Khổ 80 mm × cuộn — Phù hợp máy in nhiệt tại quầy.</p>
                   </div>
                 </label>
 
@@ -3323,7 +3323,7 @@ export default function PosScreen({
                   />
                   <div>
                     <strong>Mẫu A5: Phiếu giao hàng</strong>
-                    <p>Thông tin giao nhận và danh sách hàng hóa để ký nhận.</p>
+                    <p>📄 Khổ A5 (148 × 210 mm) — Thông tin giao nhận, danh sách hàng hóa và ô ký nhận.</p>
                   </div>
                 </label>
 
@@ -3337,7 +3337,7 @@ export default function PosScreen({
                   />
                   <div>
                     <strong>Mẫu A4: Phiếu báo tiền</strong>
-                    <p>Bố cục chuyên nghiệp, tập trung tổng giá trị đơn hàng để xác nhận.</p>
+                    <p>📄 Khổ A4 (210 × 297 mm) — Bố cục chuyên nghiệp, tập trung tổng giá trị đơn hàng để xác nhận.</p>
                   </div>
                 </label>
 
@@ -3351,7 +3351,7 @@ export default function PosScreen({
                   />
                   <div>
                     <strong>Mẫu A4: Hóa đơn bán hàng</strong>
-                    <p>Hóa đơn chính thức với đầy đủ thông tin khách hàng, chi tiết hàng hóa và ký xác nhận.</p>
+                    <p>📄 Khổ A4 (210 × 297 mm) — Hóa đơn chính thức với đầy đủ thông tin khách hàng, chi tiết hàng hóa và ký xác nhận.</p>
                   </div>
                 </label>
               </div>

@@ -24,13 +24,19 @@ function readApiMessage(body, fallbackMessage) {
 }
 
 async function request(path, token, options = {}) {
+  const headers = {
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(options.headers || {})
+  };
+
+  const hasContentType = Object.keys(headers).some((key) => key.toLowerCase() === "content-type");
+  if (!hasContentType && !(options.body instanceof FormData)) {
+    headers["Content-Type"] = "application/json";
+  }
+
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options.headers || {})
-    }
+    headers
   });
 
   const body = await response.json().catch(() => null);
@@ -68,6 +74,25 @@ export async function createProductWithApi(token, payload) {
   return request("/products", token, {
     method: "POST",
     body: JSON.stringify(payload)
+  });
+}
+
+export async function uploadProductImageWithApi(token, productId, file, options = {}) {
+  const query = new URLSearchParams();
+  if (options.makeDefault !== undefined) {
+    query.set("makeDefault", String(Boolean(options.makeDefault)));
+  }
+  if (options.showOnCorporate !== undefined) {
+    query.set("showOnCorporate", String(Boolean(options.showOnCorporate)));
+  }
+
+  const formData = new FormData();
+  formData.append("image", file);
+
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return request(`/products/${encodeURIComponent(productId)}/image${suffix}`, token, {
+    method: "POST",
+    body: formData
   });
 }
 

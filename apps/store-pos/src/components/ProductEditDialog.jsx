@@ -3,15 +3,6 @@ import { formatMoneyInput as formatCurrencyInput, formatCurrency } from "../util
 
 const MAX_UPLOAD_SIZE_BYTES = 5 * 1024 * 1024;
 
-function fileToDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(new Error("Không đọc được tệp ảnh."));
-    reader.readAsDataURL(file);
-  });
-}
-
 export default function ProductEditDialog({
   product,
   categories = [],
@@ -22,7 +13,8 @@ export default function ProductEditDialog({
   onClose,
   onSubmit,
   onChange,
-  parseMoneyInput
+  parseMoneyInput,
+  onUploadImage = async () => null
 }) {
   if (!product) return null;
 
@@ -66,10 +58,15 @@ export default function ProductEditDialog({
     try {
       setUploadingImage(true);
       setUploadMessage("");
-      const dataUrl = await fileToDataUrl(file);
       const currentGallery = Array.isArray(form.imageGallery) ? form.imageGallery : [];
-      const isDefault = currentGallery.length === 0;
-      onChange("imageGallery", [...currentGallery, { url: dataUrl, isDefault, showOnCorporate: true }]);
+      const uploaded = await onUploadImage(file, {
+        makeDefault: currentGallery.length === 0,
+        showOnCorporate: true
+      });
+      const nextGallery = Array.isArray(uploaded?.imageGallery) ? uploaded.imageGallery : currentGallery;
+      const nextImageUrl = uploaded?.imageUrl || nextGallery.find((item) => item?.isDefault)?.url || nextGallery[0]?.url || "";
+      onChange("imageGallery", nextGallery);
+      onChange("imageUrl", nextImageUrl);
       setUploadMessage("Đã tải ảnh từ máy lên thành công.");
     } catch (error) {
       setUploadMessage(error?.message || "Tải ảnh thất bại.");
@@ -183,6 +180,7 @@ export default function ProductEditDialog({
                                 const next = gallery.filter((_, i) => i !== idx);
                                 if (next.length > 0 && !next.some(g => g.isDefault)) next[0] = { ...next[0], isDefault: true };
                                 onChange("imageGallery", next);
+                                onChange("imageUrl", next.find((item) => item.isDefault)?.url || next[0]?.url || "");
                               }}>
                               Xóa
                             </button>

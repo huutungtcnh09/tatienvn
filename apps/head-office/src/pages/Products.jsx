@@ -77,6 +77,17 @@ function fileToDataUrl(file) {
   });
 }
 
+function isBlobPreviewUrl(value) {
+  return String(value || "").startsWith("blob:");
+}
+
+function revokePreviewUrl(entry) {
+  const url = String(entry?.url || "");
+  if (isBlobPreviewUrl(url)) {
+    URL.revokeObjectURL(url);
+  }
+}
+
 function normalizeImageGallery(galleryInput, fallbackImageUrl = "") {
   const raw = Array.isArray(galleryInput) ? galleryInput : [];
   const seen = new Set();
@@ -618,6 +629,9 @@ export default function Products({ token }) {
   };
 
   const handleCloseDialog = () => {
+    if (!editingProduct) {
+      (Array.isArray(formData.imageGallery) ? formData.imageGallery : []).forEach(revokePreviewUrl);
+    }
     setShowDialog(false);
     setEditingProduct(null);
     setUploadingImage(false);
@@ -648,22 +662,33 @@ export default function Products({ token }) {
     try {
       setUploadingImage(true);
       setUploadImageMessage("");
-      const dataUrl = await fileToDataUrl(file);
-      setFormData((prev) => {
-        const prevGallery = normalizeImageGallery(prev.imageGallery, prev.imageUrl);
-        const exists = prevGallery.some((item) => item.url === dataUrl);
-        const nextGallery = exists
-          ? prevGallery
-          : [
-              ...prevGallery.map((item) => ({ ...item, isDefault: item.isDefault && prevGallery.length > 0 })),
-              { url: dataUrl, isDefault: prevGallery.length === 0, showOnCorporate: false }
-            ];
-        return {
+      if (editingProduct?.id) {
+        const currentGallery = normalizeImageGallery(formData.imageGallery, formData.imageUrl);
+        const uploaded = await api.uploadProductImage(token, editingProduct.id, file, {
+          makeDefault: currentGallery.length === 0,
+          showOnCorporate: false
+        });
+        const nextGallery = normalizeImageGallery(uploaded?.data?.imageGallery ?? uploaded?.imageGallery, uploaded?.data?.imageUrl ?? uploaded?.imageUrl);
+        setFormData((prev) => ({
           ...prev,
           imageGallery: nextGallery,
           imageUrl: getDefaultImageUrl(nextGallery)
-        };
-      });
+        }));
+      } else {
+        const previewUrl = URL.createObjectURL(file);
+        setFormData((prev) => {
+          const prevGallery = Array.isArray(prev.imageGallery) ? prev.imageGallery : [];
+          const nextGallery = [
+            ...prevGallery,
+            { url: previewUrl, file, isDefault: prevGallery.length === 0, showOnCorporate: false }
+          ];
+          return {
+            ...prev,
+            imageGallery: nextGallery,
+            imageUrl: getDefaultImageUrl(nextGallery)
+          };
+        });
+      }
       setUploadImageMessage("Đã tải ảnh từ máy lên thành công.");
     } catch (error) {
       setUploadImageMessage(error?.message || "Tải ảnh thất bại.");
@@ -675,7 +700,8 @@ export default function Products({ token }) {
 
   const handleSetDefaultImage = (imageUrl) => {
     setFormData((prev) => {
-      const nextGallery = normalizeImageGallery(prev.imageGallery, prev.imageUrl).map((item) => ({
+      const currentGallery = Array.isArray(prev.imageGallery) ? prev.imageGallery : [];
+      const nextGallery = currentGallery.map((item) => ({
         ...item,
         isDefault: item.url === imageUrl
       }));
@@ -685,7 +711,8 @@ export default function Products({ token }) {
 
   const handleToggleCorporateImage = (imageUrl, checked) => {
     setFormData((prev) => {
-      const nextGallery = normalizeImageGallery(prev.imageGallery, prev.imageUrl).map((item) => (
+      const currentGallery = Array.isArray(prev.imageGallery) ? prev.imageGallery : [];
+      const nextGallery = currentGallery.map((item) => (
         item.url === imageUrl ? { ...item, showOnCorporate: Boolean(checked) } : item
       ));
       return { ...prev, imageGallery: nextGallery };
@@ -694,7 +721,8 @@ export default function Products({ token }) {
 
   const handleRemoveImage = (imageUrl) => {
     setFormData((prev) => {
-      const current = normalizeImageGallery(prev.imageGallery, prev.imageUrl);
+      const current = Array.isArray(prev.imageGallery) ? prev.imageGallery : [];
+      current.filter((item) => item.url === imageUrl).forEach(revokePreviewUrl);
       const filtered = current.filter((item) => item.url !== imageUrl);
       const nextGallery = normalizeImageGallery(filtered);
       return {
@@ -972,6 +1000,7 @@ export default function Products({ token }) {
     e.preventDefault();
     const normalizedImageGallery = normalizeImageGallery(formData.imageGallery, formData.imageUrl);
     const normalizedImageUrl = getDefaultImageUrl(normalizedImageGallery);
+    const pendingUploadImages = (Array.isArray(formData.imageGallery) ? formData.imageGallery : []).filter((item) => item?.file instanceof File);
     if (hasProductFormErrors) {
       alert(Object.values(productFormErrors)[0]);
       return;
@@ -1003,17 +1032,33 @@ export default function Products({ token }) {
         benefits: benefits || undefined,
         usageGuide: usageGuide || undefined,
         costPrice: Number(formData.costPrice || 0), rewardPoints: parseInt(formData.rewardPoints), giftPointsCost: parseInt(formData.giftPointsCost || 0),
-        imageUrl: normalizedImageUrl || undefined,
-        imageGallery: normalizedImageGallery,
         isTrackedInOverview: Boolean(formData.isTrackedInOverview),
         isActive: Boolean(formData.isActive),
         isVisibleOnCorporate: Boolean(formData.isVisibleOnCorporate)
       };
       if (editingProduct) {
+        payload.imageUrl = normalizedImageUrl || undefined;
+        payload.imageGallery = normalizedImageGallery.length > 0 ? normalizedImageGallery : [];
         await api.updateProduct(token, editingProduct.id, payload);
         alert("Cập nhật thành công");
       } else {
-        await api.createProduct(token, payload);
+        payload.imageUrl = normalizedImageUrl || undefined;
+        payload.imageGallery = normalizedImageGallery;
+        const created = await api.createProduct(token, payload);
+        const createdProductId = created?.data?.id || created?.id;
+        if (!createdProductId) {
+          throw new Error("Không lấy được sản phẩm vừa tạo để tải ảnh.");
+        }
+
+        for (let index = 0; index < pendingUploadImages.length; index += 1) {
+          const image = pendingUploadImages[index];
+          await api.uploadProductImage(token, createdProductId, image.file, {
+            makeDefault: image?.isDefault === true || index === 0,
+            showOnCorporate: image?.showOnCorporate === true
+          });
+        }
+
+        pendingUploadImages.forEach(revokePreviewUrl);
         alert("Tạo sản phẩm thành công");
       }
       handleCloseDialog();

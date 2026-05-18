@@ -378,6 +378,61 @@ body {
   box-shadow: 0 3px 10px rgba(15, 23, 42, 0.05);
 }
 
+.pull-refresh-wrap {
+  position: relative;
+  overflow: hidden;
+}
+
+.pull-refresh-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #51627e;
+  font-size: 0.76rem;
+  font-weight: 600;
+  transition: height 0.18s ease;
+  will-change: height;
+  user-select: none;
+}
+
+.pull-refresh-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pull-refresh-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  opacity: 0.45;
+}
+
+.pull-refresh-content {
+  transition: transform 0.18s ease;
+  will-change: transform;
+}
+
+.pull-refresh-wrap.is-refreshing .pull-refresh-indicator {
+  color: #2f4f86;
+}
+
+.pull-refresh-wrap.is-refreshing .pull-refresh-spinner {
+  opacity: 1;
+  animation: pull-refresh-spin 0.8s linear infinite;
+}
+
+@keyframes pull-refresh-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .list-card header {
   display: flex;
   align-items: center;

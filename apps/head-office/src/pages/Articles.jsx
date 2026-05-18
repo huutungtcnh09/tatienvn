@@ -1,6 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as api from "../api";
 import "../styles/pages.css";
+
+const MAX_ARTICLE_COVER_SIZE = 5 * 1024 * 1024;
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://localhost:4000").replace(/\/$/, "");
 
 const CATEGORIES = [
   { value: "news", label: "Tin tức" },
@@ -51,6 +54,14 @@ function formatDateTime(value) {
   return dt.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+function resolveAssetUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (/^https?:\/\//i.test(raw) || raw.startsWith("data:")) return raw;
+  if (raw.startsWith("/")) return `${API_BASE_URL}${raw}`;
+  return `${API_BASE_URL}/${raw.replace(/^\/+/, "")}`;
+}
+
 export default function Articles({ token }) {
   const [articles, setArticles] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -68,6 +79,9 @@ export default function Articles({ token }) {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
   const [preview, setPreview] = useState(false);
+  const [uploadingCover, setUploadingCover] = useState(false);
+  const [uploadMessage, setUploadMessage] = useState("");
+  const coverFileInputRef = useRef(null);
 
   // Delete
   const [deletingId, setDeletingId] = useState(null);
@@ -102,12 +116,14 @@ export default function Articles({ token }) {
     setEditingId(null);
     setForm(DEFAULT_FORM);
     setFormError("");
+    setUploadMessage("");
     setPreview(false);
     setShowEditor(true);
   }
 
   async function openEditEditor(article) {
     setFormError("");
+    setUploadMessage("");
     setPreview(false);
     setEditingId(article.id);
     setForm({
@@ -136,6 +152,7 @@ export default function Articles({ token }) {
   }
 
   function handleFormChange(field, value) {
+    setUploadMessage("");
     setForm((prev) => {
       const next = { ...prev, [field]: value };
       // Tự sinh slug khi title thay đổi và slug chưa được sửa tay
@@ -145,6 +162,45 @@ export default function Articles({ token }) {
       return next;
     });
   }
+
+  const handlePickCoverImage = () => {
+    if (uploadingCover) return;
+    coverFileInputRef.current?.click();
+  };
+
+  const handleCoverFileChange = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      setUploadMessage("Vui lòng chọn tệp ảnh hợp lệ (png, jpg, webp...).");
+      event.target.value = "";
+      return;
+    }
+
+    if (file.size > MAX_ARTICLE_COVER_SIZE) {
+      setUploadMessage("Ảnh vượt quá 5MB. Vui lòng chọn ảnh nhỏ hơn.");
+      event.target.value = "";
+      return;
+    }
+
+    try {
+      setUploadingCover(true);
+      setUploadMessage("");
+      const uploaded = await api.uploadArticleCover(token, file);
+      const uploadedUrl = uploaded?.imageUrl || uploaded?.url || "";
+      if (!uploadedUrl) {
+        throw new Error("Không nhận được URL ảnh sau khi upload.");
+      }
+      setForm((prev) => ({ ...prev, coverImage: uploadedUrl }));
+      setUploadMessage("Đã tải ảnh bìa lên server thành công.");
+    } catch (e) {
+      setUploadMessage(e?.message || "Tải ảnh bìa thất bại.");
+    } finally {
+      setUploadingCover(false);
+      event.target.value = "";
+    }
+  };
 
   async function handleSave() {
     if (!form.title.trim()) {
@@ -349,7 +405,7 @@ export default function Articles({ token }) {
               {preview ? (
                 <div className="article-preview">
                   {form.coverImage && (
-                    <img src={form.coverImage} alt="cover" className="article-preview-cover" />
+                    <img src={resolveAssetUrl(form.coverImage)} alt="cover" className="article-preview-cover" />
                   )}
                   <h1 className="article-preview-title">{form.title || "(Chưa có tiêu đề)"}</h1>
                   <div className="article-preview-meta">
@@ -391,15 +447,36 @@ export default function Articles({ token }) {
                   </div>
 
                   <label className="articles-field-group">
-                    <span className="articles-field-label">Ảnh bìa (URL)</span>
+                    <span className="articles-field-label">Ảnh bìa</span>
                     <input
-                      type="url"
-                      value={form.coverImage}
-                      onChange={(e) => handleFormChange("coverImage", e.target.value)}
-                      placeholder="https://..."
+                      ref={coverFileInputRef}
+                      type="file"
+                      accept="image/*"
+                      style={{ display: "none" }}
+                      onChange={handleCoverFileChange}
                     />
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                      <button type="button" className="btn-secondary" onClick={handlePickCoverImage} disabled={uploadingCover || saving}>
+                        {uploadingCover ? "Đang tải ảnh..." : "Chọn ảnh từ máy"}
+                      </button>
+                      {form.coverImage ? (
+                        <button
+                          type="button"
+                          className="btn-cancel"
+                          onClick={() => handleFormChange("coverImage", "")}
+                          disabled={uploadingCover || saving}
+                        >
+                          Xóa ảnh bìa
+                        </button>
+                      ) : null}
+                    </div>
+                    {uploadMessage ? (
+                      <p className={`articles-feedback ${uploadMessage.startsWith("Đã") ? "" : "articles-feedback--error"}`} style={{ margin: 0 }}>
+                        {uploadMessage}
+                      </p>
+                    ) : null}
                     {form.coverImage && (
-                      <img src={form.coverImage} alt="preview" className="articles-cover-preview" />
+                      <img src={resolveAssetUrl(form.coverImage)} alt="preview" className="articles-cover-preview" />
                     )}
                   </label>
 

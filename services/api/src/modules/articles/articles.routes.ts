@@ -1,11 +1,56 @@
 import { Router } from "express";
 import { z } from "zod";
+import path from "path";
+import fs from "fs";
+import multer from "multer";
 import { prisma } from "../../prisma.js";
 import { badRequest, created, forbidden, ok } from "../../utils/http.js";
 import { requirePermission } from "../../middleware/authorize.js";
 import type { AuthRequest } from "../../middleware/auth.js";
 
 const router = Router();
+const ARTICLE_UPLOAD_DIR = path.resolve(process.env.UPLOAD_DIR ?? "./uploads", "articles");
+const UPLOAD_BASE_URL = (process.env.UPLOAD_BASE_URL ?? "").replace(/\/$/, "");
+
+fs.mkdirSync(ARTICLE_UPLOAD_DIR, { recursive: true });
+
+const articleCoverStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, ARTICLE_UPLOAD_DIR),
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase() || ".jpg";
+    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
+  }
+});
+
+const uploadArticleCover = multer({
+  storage: articleCoverStorage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (/^image\/(jpeg|png|webp|gif)$/.test(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error("Chỉ chấp nhận file ảnh JPEG, PNG, WebP hoặc GIF"));
+    }
+  }
+}).single("image");
+
+function resolveUploadBaseUrl(req: AuthRequest) {
+  const requestHost = req.get("x-forwarded-host") || req.get("host") || "localhost:4000";
+  const isLocalRequest = /^(localhost|127\.0\.0\.1)(:\d+)?$/i.test(requestHost);
+  if (isLocalRequest) {
+    const forwardedProto = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim();
+    const proto = forwardedProto || req.protocol || "http";
+    return `${proto}://${requestHost}/uploads`;
+  }
+
+  if (/^https?:\/\//i.test(UPLOAD_BASE_URL)) {
+    return UPLOAD_BASE_URL;
+  }
+
+  const forwardedProto = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim();
+  const proto = forwardedProto || req.protocol || "http";
+  return `${proto}://${requestHost}/uploads`;
+}
 
 function toSlug(text: string): string {
   return text
@@ -75,6 +120,26 @@ router.get("/", requirePermission("articles:read"), async (req, res) => {
   ]);
 
   return ok(res, { data: articles, total, page, pageSize, totalPages: Math.ceil(total / pageSize) });
+});
+
+// POST /api/articles/upload-cover — upload ảnh bìa bài viết
+router.post("/upload-cover", requirePermission("articles:write"), (req: AuthRequest, res) => {
+  uploadArticleCover(req, res, async (err) => {
+    if (err instanceof multer.MulterError) {
+      return badRequest(res, err.code === "LIMIT_FILE_SIZE" ? "File quá lớn, tối đa 5MB" : err.message);
+    }
+    if (err) {
+      return badRequest(res, err instanceof Error ? err.message : "Upload thất bại");
+    }
+    const file = (req as any).file as Express.Multer.File | undefined;
+    if (!file) {
+      return badRequest(res, "Không có file được gửi lên");
+    }
+
+    const uploadBaseUrl = resolveUploadBaseUrl(req);
+    const imageUrl = `${uploadBaseUrl}/articles/${file.filename}`;
+    return ok(res, { imageUrl }, "Tải ảnh bìa thành công");
+  });
 });
 
 // GET /api/articles/:id — chi tiết bài viết (có auth)

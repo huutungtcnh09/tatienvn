@@ -469,6 +469,14 @@ function getArticleLink(article) {
   return `/tin-tuc/${article.slug}`;
 }
 
+function resolveMediaUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (/^https?:\/\//i.test(raw) || raw.startsWith("data:")) return raw;
+  if (raw.startsWith("/")) return `${API_BASE_URL}${raw}`;
+  return `${API_BASE_URL}/${raw.replace(/^\/+/, "")}`;
+}
+
 async function fetchPublicArticles({ search, category, page, pageSize }) {
   const url = new URL(`${API_BASE_URL}/api/public/articles`);
   url.searchParams.set("page", String(page));
@@ -501,7 +509,7 @@ const ARTICLE_CATEGORY_LABELS = {
 };
 
 function ArticleCard({ article, onNavigate }) {
-  const cover = article.coverImage || "https://placehold.co/720x400/f4f0e8/455560?text=Bai+Viet";
+  const cover = resolveMediaUrl(article.coverImage) || "https://placehold.co/720x400/f4f0e8/455560?text=Bai+Viet";
   const publishedAt = article.publishedAt ? new Date(article.publishedAt).toLocaleDateString("vi-VN") : "";
   return (
     <article className="article-card">
@@ -525,6 +533,8 @@ function ArticleDetailPage({ slug, onNavigate }) {
   const [article, setArticle] = useState(null);
   const [loadingArticle, setLoadingArticle] = useState(true);
   const [errorArticle, setErrorArticle] = useState("");
+  const [relatedArticles, setRelatedArticles] = useState([]);
+  const [loadingRelated, setLoadingRelated] = useState(false);
 
   useEffect(() => {
     setLoadingArticle(true);
@@ -535,6 +545,46 @@ function ArticleDetailPage({ slug, onNavigate }) {
       .finally(() => setLoadingArticle(false));
   }, [slug]);
 
+  useEffect(() => {
+    if (!article?.slug) {
+      setRelatedArticles([]);
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingRelated(true);
+
+    const loadRelatedArticles = async () => {
+      try {
+        const sameCategory = await fetchPublicArticles({
+          search: "",
+          category: article.category || "",
+          page: 1,
+          pageSize: 12
+        });
+
+        const related = (sameCategory?.data || []).filter((item) => item?.slug && item.slug !== article.slug);
+
+        if (!cancelled) {
+          setRelatedArticles(related.slice(0, 6));
+        }
+      } catch (_e) {
+        if (!cancelled) {
+          setRelatedArticles([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingRelated(false);
+        }
+      }
+    };
+
+    loadRelatedArticles();
+    return () => {
+      cancelled = true;
+    };
+  }, [article?.slug, article?.category]);
+
   function renderContent(text) {
     const escaped = (text || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     return escaped.split(/\n\n+/).map((p) => `<p>${p.replace(/\n/g, "<br/>")}</p>`).join("");
@@ -544,6 +594,7 @@ function ArticleDetailPage({ slug, onNavigate }) {
   if (errorArticle || !article) return <p className="status-text">Không tìm thấy bài viết.</p>;
 
   const publishedAt = article.publishedAt ? new Date(article.publishedAt).toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" }) : "";
+  const coverImage = resolveMediaUrl(article.coverImage) || "https://placehold.co/1100x620/f4f0e8/455560?text=Bai+Viet";
 
   return (
     <article className="article-detail">
@@ -554,9 +605,7 @@ function ArticleDetailPage({ slug, onNavigate }) {
         <span> / </span>
         <span>{article.title}</span>
       </nav>
-      {article.coverImage && (
-        <img className="article-detail-cover" src={article.coverImage} alt={article.title} />
-      )}
+      <img className="article-detail-cover" src={coverImage} alt={article.title} />
       <div className="article-detail-header">
         <div className="article-meta">
           <span className="article-category">{ARTICLE_CATEGORY_LABELS[article.category] || article.category}</span>
@@ -569,6 +618,35 @@ function ArticleDetailPage({ slug, onNavigate }) {
         className="article-detail-body"
         dangerouslySetInnerHTML={{ __html: renderContent(article.content) }}
       />
+
+      <section className="article-related-section">
+        <h2>Bài viết liên quan</h2>
+        {loadingRelated ? (
+          <p className="article-related-empty">Đang tải bài viết liên quan...</p>
+        ) : relatedArticles.length === 0 ? (
+          <p className="article-related-empty">Chưa có bài viết cùng danh mục.</p>
+        ) : (
+          <ul className="article-related-list">
+            {relatedArticles.map((item) => {
+              return (
+                <li key={item.id || item.slug} className="article-related-item">
+                  <a
+                    href={getArticleLink(item)}
+                    className="article-related-link"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      onNavigate(getArticleLink(item));
+                    }}
+                  >
+                    {item.title}
+                  </a>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+
       <div className="article-detail-back">
         <a href="/tin-tuc" className="btn-outline" onClick={(e) => { e.preventDefault(); onNavigate("/tin-tuc"); }}>← Quay lại danh sách</a>
       </div>

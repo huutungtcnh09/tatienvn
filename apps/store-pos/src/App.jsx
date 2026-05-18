@@ -160,7 +160,6 @@ function renderStockReportA4Html({ storeName, generatedBy, rows }) {
       <tr>
         <td class="center">${startIndex + index + 1}</td>
         <td>${escapeHtml(row.sku || "-")}</td>
-        <td>${escapeHtml(row.name || "-")}</td>
         <td class="center">${escapeHtml(row.unit || "-")}</td>
         <td class="right">${escapeHtml(formatNumber(row.stock))}</td>
       </tr>
@@ -177,7 +176,7 @@ function renderStockReportA4Html({ storeName, generatedBy, rows }) {
   <title>Báo cáo tồn kho A4</title>
   <style>
     @page { size: A4; margin: 8mm; }
-    body { font-family: "Times New Roman", serif; color: #111; font-size: 10px; line-height: 1.25; }
+    body { font-family: "Times New Roman", serif; color: #111; font-size: 12.5px; line-height: 1.25; }
     .company { text-align: center; font-size: 16px; font-weight: 700; margin: 0 0 2px; }
     .title { text-align: center; font-size: 18px; font-weight: 700; margin: 0 0 5px; text-transform: uppercase; }
     .meta { border: 1px solid #222; padding: 5px 7px; margin-bottom: 8px; }
@@ -204,30 +203,28 @@ function renderStockReportA4Html({ storeName, generatedBy, rows }) {
     <table>
       <thead>
         <tr>
-          <th style="width: 28px">#</th>
-          <th style="width: 72px">Mã</th>
-          <th>Tên sản phẩm</th>
-          <th style="width: 36px">ĐVT</th>
-          <th style="width: 56px">Tồn</th>
+          <th style="width: 40px">#</th>
+          <th>Mã</th>
+          <th style="width: 70px">ĐVT</th>
+          <th style="width: 90px">Tồn</th>
         </tr>
       </thead>
       <tbody>
-        ${leftBodyRows || `<tr><td colspan="5" class="center">Không có dữ liệu</td></tr>`}
+        ${leftBodyRows || `<tr><td colspan="4" class="center">Không có dữ liệu</td></tr>`}
       </tbody>
     </table>
 
     <table>
       <thead>
         <tr>
-          <th style="width: 28px">#</th>
-          <th style="width: 72px">Mã</th>
-          <th>Tên sản phẩm</th>
-          <th style="width: 36px">ĐVT</th>
-          <th style="width: 56px">Tồn</th>
+          <th style="width: 40px">#</th>
+          <th>Mã</th>
+          <th style="width: 70px">ĐVT</th>
+          <th style="width: 90px">Tồn</th>
         </tr>
       </thead>
       <tbody>
-        ${rightBodyRows || `<tr><td colspan="5" class="center">-</td></tr>`}
+        ${rightBodyRows || `<tr><td colspan="4" class="center">-</td></tr>`}
       </tbody>
     </table>
   </div>
@@ -1095,6 +1092,11 @@ export default function App() {
     alert("Đã cập nhật sản phẩm");
   };
 
+  const uploadProductImageQuick = async (productId, file, options = {}) => {
+    const res = await api.uploadProductImage(token, productId, file, options);
+    return res?.data || res || null;
+  };
+
   const updateProductConsultationQuick = async (productId, payload) => {
     await api.updateProductConsultation(token, productId, payload);
     await reloadData();
@@ -1108,9 +1110,9 @@ export default function App() {
   };
 
   const createProduct = async (payload) => {
-    await api.createProduct(token, payload);
+    const res = await api.createProduct(token, payload);
     await reloadData();
-    alert("Đã tạo sản phẩm");
+    return res?.data || res || null;
   };
 
   const loadProductAnalytics = async (productId) => {
@@ -1201,6 +1203,7 @@ export default function App() {
             products={products}
             inventory={inventory}
             onQuickUpdate={updateProductQuick}
+            onUploadProductImage={uploadProductImageQuick}
             onQuickUpdateConsultation={updateProductConsultationQuick}
             onCreateCategory={createCategory}
             onCreateProduct={createProduct}

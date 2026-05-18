@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
+import path from "path";
 import { config } from "./config.js";
 import authRoutes from "./modules/auth/auth.routes.js";
 import usersRoutes from "./modules/users/users.routes.js";
@@ -33,6 +34,7 @@ app.use(helmet({
 }));
 app.use(cors({ origin: config.corsOrigin }));
 app.use(express.json({ limit: "64kb" }));
+app.use("/uploads", express.static(path.resolve(process.env.UPLOAD_DIR ?? "./uploads")));
 
 app.get("/health", (_req, res) => {
   res.status(200).json({ status: "ok" });

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createCustomerWithApi, createProductWithApi, getMobileData, getMobileOrders, getMobileReceipts, getStoreWatchlist, loginWithApi, updatePartnerWithApi, updateProductWithApi, getMaintenanceStatus, setMaintenanceMode, getCustomerNotes, createCustomerNote, getPartnerTransactions, getStorePositions, getStaffKpiByPosition, getSuppliersWithApi, getSupplierPurchasesWithApi, getBusinessAreasDashboard } from "./api";
+import { createCustomerWithApi, createProductWithApi, getMobileData, getMobileOrders, getMobileReceipts, getStoreWatchlist, loginWithApi, updatePartnerWithApi, updateProductWithApi, getMaintenanceStatus, setMaintenanceMode, getCustomerNotes, createCustomerNote, getPartnerTransactions, getStorePositions, getStaffKpiByPosition, getSuppliersWithApi, getSupplierPurchasesWithApi, getBusinessAreasDashboard, uploadProductImageWithApi } from "./api";
 
 const TOKEN_KEY = "mobile_token";
 const USER_KEY = "mobile_user";
@@ -32,6 +32,7 @@ const number = new Intl.NumberFormat("vi-VN");
 
 const MOBILE_ALLOWED_ROLES = ["SALE_MOBILE", "SUPER_ADMIN"];
 const MAX_IMAGE_UPLOAD_SIZE_BYTES = 5 * 1024 * 1024;
+const FOREGROUND_REFRESH_COOLDOWN_MS = 45 * 1000;
 const MOBILE_REVENUE_STATUSES = new Set(["DELIVERED", "COMPLETED", "RETURNED"]);
 
 function isMobileRevenueStatus(status) {
@@ -66,6 +67,12 @@ function fileToDataUrl(file) {
     reader.onerror = () => reject(new Error("Không đọc được tệp ảnh."));
     reader.readAsDataURL(file);
   });
+}
+
+function isSupportedImageUrl(url) {
+  const value = String(url || "").trim();
+  if (!value) return false;
+  return /^https?:\/\//i.test(value) || /^data:image\/[a-zA-Z0-9.+-]+;base64,/i.test(value);
 }
 
 function getTokenRoles(rawToken) {
@@ -137,6 +144,7 @@ function App() {
     },
     refreshedAt: 0
   });
+  const lastForegroundRefreshAtRef = useRef(0);
 
   const activeLabel = useMemo(() => {
     if (subScreen && SUB_SCREEN_LABELS[subScreen]) return SUB_SCREEN_LABELS[subScreen];
@@ -159,6 +167,7 @@ function App() {
     try {
       const data = await getMobileData(token, selectedStoreId);
       setPayload((prev) => ({ ...prev, ...data }));
+      lastForegroundRefreshAtRef.current = Date.now();
       if (!selectedStoreId && data.stores.length > 0) {
         const fallbackStore = data.stores.find((store) => !store?.isWarehouse)?.id || data.stores[0]?.id || "";
         if (fallbackStore) {
@@ -183,6 +192,34 @@ function App() {
   }, [token, selectedStoreId]);
 
   useEffect(() => {
+    if (!token) return;
+
+    const refreshWhenForeground = () => {
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - lastForegroundRefreshAtRef.current < FOREGROUND_REFRESH_COOLDOWN_MS) return;
+      lastForegroundRefreshAtRef.current = now;
+      loadData(true);
+    };
+
+    const handleVisibilityChange = () => {
+      refreshWhenForeground();
+    };
+
+    const handleWindowFocus = () => {
+      refreshWhenForeground();
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("focus", handleWindowFocus);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", handleWindowFocus);
+    };
+  }, [token, selectedStoreId]);
+
+  useEffect(() => {
     if (activeTab !== "more") {
       setShowStorePicker(false);
       setSubScreen(null);
@@ -198,6 +235,7 @@ function App() {
     setSelectedStoreId("");
     setShowStorePicker(false);
     setQuery("");
+    lastForegroundRefreshAtRef.current = 0;
     setPayload({
       stores: [],
       categories: [],
@@ -304,6 +342,15 @@ function App() {
     return created;
   };
 
+  const uploadProductImage = async (productId, file, options = {}) => {
+    const updated = await uploadProductImageWithApi(token, productId, file, options);
+    setPayload((prev) => ({
+      ...prev,
+      products: (prev.products || []).map((item) => (item.id === productId ? { ...item, ...updated } : item))
+    }));
+    return updated;
+  };
+
   const createCustomer = async (payloadCreate) => {
     const created = await createCustomerWithApi(token, payloadCreate);
     await loadData(true);
@@ -359,9 +406,11 @@ function App() {
             payload={payload}
             query={query}
             loading={loading}
+            onRefresh={() => loadData(true)}
             onSaveSupplierQuote={saveSupplierQuote}
             onCreateProduct={createProduct}
             onUpdateProduct={updateProduct}
+            onUploadProductImage={uploadProductImage}
           />
         )}
         {activeTab === "customers" && (
@@ -370,11 +419,12 @@ function App() {
             payload={payload}
             query={query}
             loading={loading}
+            onRefresh={() => loadData(true)}
             selectedStoreId={selectedStoreId}
             onCreateCustomer={createCustomer}
           />
         )}
-        {activeTab === "overview" && <OverviewPanel payload={payload} loading={loading} token={token} />}
+        {activeTab === "overview" && <OverviewPanel payload={payload} loading={loading} token={token} onRefresh={() => loadData(true)} />}
         {activeTab === "more" && !subScreen && (
           <MorePanel
             token={token}
@@ -435,6 +485,96 @@ function App() {
         })}
       </nav>
 
+    </div>
+  );
+}
+
+function PullToRefreshSection({ children, onRefresh, disabled = false }) {
+  const [pullDistance, setPullDistance] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const startYRef = useRef(null);
+
+  const threshold = 68;
+  const maxPull = 108;
+  const indicatorHeight = Math.min(pullDistance, threshold);
+
+  const canPullFromTop = () => {
+    return window.scrollY <= 0 && document.documentElement.scrollTop <= 0 && document.body.scrollTop <= 0;
+  };
+
+  const resetPullState = () => {
+    startYRef.current = null;
+    setPullDistance(0);
+  };
+
+  const handleTouchStart = (event) => {
+    if (disabled || refreshing) return;
+    if (!canPullFromTop()) return;
+    startYRef.current = event.touches?.[0]?.clientY ?? null;
+  };
+
+  const handleTouchMove = (event) => {
+    if (disabled || refreshing) return;
+    if (startYRef.current == null) return;
+
+    const currentY = event.touches?.[0]?.clientY;
+    if (typeof currentY !== "number") return;
+    const delta = currentY - startYRef.current;
+
+    if (delta <= 0) {
+      setPullDistance(0);
+      return;
+    }
+
+    if (!canPullFromTop() && pullDistance <= 0) return;
+
+    const nextDistance = Math.min(maxPull, delta * 0.45);
+    setPullDistance(nextDistance);
+    event.preventDefault();
+  };
+
+  const handleTouchEnd = async () => {
+    if (disabled || refreshing) {
+      resetPullState();
+      return;
+    }
+    if (startYRef.current == null) return;
+
+    const shouldRefresh = pullDistance >= threshold;
+    resetPullState();
+    if (!shouldRefresh || typeof onRefresh !== "function") return;
+
+    try {
+      setRefreshing(true);
+      await onRefresh();
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const indicatorLabel = refreshing
+    ? "Đang làm mới..."
+    : pullDistance >= threshold
+      ? "Thả để làm mới"
+      : "Kéo để làm mới";
+
+  return (
+    <div
+      className={`pull-refresh-wrap ${refreshing ? "is-refreshing" : ""}`}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchEnd}
+    >
+      <div className="pull-refresh-indicator" style={{ height: `${refreshing ? threshold : indicatorHeight}px` }}>
+        <span className="pull-refresh-label">
+          <i className="pull-refresh-spinner" aria-hidden="true" />
+          {indicatorLabel}
+        </span>
+      </div>
+      <div className="pull-refresh-content" style={{ transform: `translateY(${refreshing ? threshold : indicatorHeight}px)` }}>
+        {children}
+      </div>
     </div>
   );
 }
@@ -513,7 +653,7 @@ function LoginScreen({ onLogin }) {
   );
 }
 
-function ProductsPanel({ payload, query, loading, onSaveSupplierQuote, onCreateProduct, onUpdateProduct }) {
+function ProductsPanel({ payload, query, loading, onRefresh, onSaveSupplierQuote, onCreateProduct, onUpdateProduct, onUploadProductImage }) {
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [savingCreate, setSavingCreate] = useState(false);
@@ -865,6 +1005,12 @@ function ProductsPanel({ payload, query, loading, onSaveSupplierQuote, onCreateP
     const file = event.target.files?.[0];
     if (!file) return;
 
+    if (!selectedProduct?.id || !onUploadProductImage) {
+      setEditMessage("Lỗi: Không xác định được sản phẩm để tải ảnh.");
+      event.target.value = "";
+      return;
+    }
+
     if (!file.type.startsWith("image/")) {
       setEditMessage("Lỗi: Vui lòng chọn tệp ảnh hợp lệ.");
       event.target.value = "";
@@ -879,13 +1025,24 @@ function ProductsPanel({ payload, query, loading, onSaveSupplierQuote, onCreateP
 
     try {
       setUploadingImage(true);
-      const dataUrl = await fileToDataUrl(file);
-      setEditForm((prev) => {
-        const gallery = Array.isArray(prev.imageGallery) ? prev.imageGallery : [];
-        const isDefault = gallery.length === 0;
-        return { ...prev, imageGallery: [...gallery, { url: dataUrl, isDefault, showOnCorporate: true }] };
+      const hasExistingGallery = Array.isArray(editForm.imageGallery) && editForm.imageGallery.length > 0;
+      const updated = await onUploadProductImage(selectedProduct.id, file, {
+        makeDefault: !hasExistingGallery,
+        showOnCorporate: true
       });
-      setEditMessage("Đã tải ảnh lên, nhớ bấm lưu sản phẩm.");
+      const normalizedGallery = Array.isArray(updated?.imageGallery) ? updated.imageGallery : [];
+      const nextImageUrl = updated?.imageUrl || normalizedGallery.find((item) => item?.isDefault)?.url || normalizedGallery[0]?.url || "";
+      setEditForm((prev) => ({
+        ...prev,
+        imageUrl: nextImageUrl,
+        imageGallery: normalizedGallery
+      }));
+      setSelectedProduct((prev) => (prev ? {
+        ...prev,
+        imageUrl: nextImageUrl,
+        imageGallery: normalizedGallery
+      } : prev));
+      setEditMessage("Đã tải ảnh lên thành công.");
     } catch (error) {
       setEditMessage(`Lỗi: ${error instanceof Error ? error.message : "Không tải được ảnh"}`);
     } finally {
@@ -910,6 +1067,16 @@ function ProductsPanel({ payload, query, loading, onSaveSupplierQuote, onCreateP
     const ingredients = String(editForm.ingredients || "").trim();
     const benefits = String(editForm.benefits || "").trim();
     const usageGuide = String(editForm.usageGuide || "").trim();
+    const normalizedImageGallery = (Array.isArray(editForm.imageGallery) ? editForm.imageGallery : [])
+      .filter((item) => isSupportedImageUrl(item?.url))
+      .map((item, index) => ({
+        url: String(item.url).trim(),
+        isDefault: item?.isDefault === true,
+        showOnCorporate: item?.showOnCorporate !== false
+      }));
+    const defaultGalleryImage = normalizedImageGallery.find((item) => item.isDefault)?.url || normalizedImageGallery[0]?.url;
+    const explicitImageUrl = isSupportedImageUrl(editForm.imageUrl) ? String(editForm.imageUrl).trim() : "";
+    const nextImageUrl = defaultGalleryImage || explicitImageUrl || undefined;
 
     if (!sku || sku.length < 2) {
       setEditMessage("Lỗi: Mã SKU phải có ít nhất 2 ký tự.");
@@ -946,8 +1113,8 @@ function ProductsPanel({ payload, query, loading, onSaveSupplierQuote, onCreateP
         ingredients: ingredients || undefined,
         benefits: benefits || undefined,
         usageGuide: usageGuide || undefined,
-        imageGallery: editForm.imageGallery && editForm.imageGallery.length > 0 ? editForm.imageGallery : undefined,
-        imageUrl: (editForm.imageGallery || []).find(g => g.isDefault)?.url || (editForm.imageGallery || [])[0]?.url || String(editForm.imageUrl || "").trim() || undefined
+        imageGallery: normalizedImageGallery.length > 0 ? normalizedImageGallery : undefined,
+        imageUrl: nextImageUrl
       });
       const resolvedCategory = updated?.category
         || payload.categories?.find((item) => item.id === (updated?.categoryId || categoryId))
@@ -1095,112 +1262,114 @@ function ProductsPanel({ payload, query, loading, onSaveSupplierQuote, onCreateP
 
   return (
     <>
-      <section className="list-card">
-        <header>
-          <h3>Danh sách sản phẩm</h3>
-          <div className="list-card-actions">
-            <span>{number.format(filteredRows.length)} bản ghi</span>
-            <div className="filter-menu-wrap">
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => setShowFilterMenu((open) => !open)}
-                aria-expanded={showFilterMenu}
-              >
-                {productFilterLabel}
-              </button>
-              {showFilterMenu ? (
-                <div className="filter-dropdown" role="menu" aria-label="Bộ lọc sản phẩm">
-                  <button
-                    type="button"
-                    className={`filter-option ${productFilter === "LOW_STOCK" ? "active" : ""}`}
-                    onClick={() => { setProductFilter("LOW_STOCK"); setShowFilterMenu(false); }}
-                  >
-                    Tồn kho thấp
-                  </button>
-                  <button
-                    type="button"
-                    className={`filter-option ${productFilter === "HIGH_STOCK" ? "active" : ""}`}
-                    onClick={() => { setProductFilter("HIGH_STOCK"); setShowFilterMenu(false); }}
-                  >
-                    Tồn kho cao
-                  </button>
-                  <button
-                    type="button"
-                    className={`filter-option ${productFilter === "COST_DESC" ? "active" : ""}`}
-                    onClick={() => { setProductFilter("COST_DESC"); setShowFilterMenu(false); }}
-                  >
-                    Giá vốn thấp giảm dần
-                  </button>
-                  <button
-                    type="button"
-                    className={`filter-option ${productFilter === "COST_ASC" ? "active" : ""}`}
-                    onClick={() => { setProductFilter("COST_ASC"); setShowFilterMenu(false); }}
-                  >
-                    Giá vốn tăng dần
-                  </button>
-                  <button
-                    type="button"
-                    className="filter-option filter-option-reset"
-                    onClick={() => { setProductFilter("NONE"); setShowFilterMenu(false); }}
-                  >
-                    Đặt lại bộ lọc
-                  </button>
-                </div>
-              ) : null}
-            </div>
-            <button type="button" className="btn-primary" onClick={openCreateProductDialog}>+ Tạo mới</button>
-          </div>
-        </header>
-        <ul>
-          {rows.map((item) => (
-            <li key={item.id} className="product-row">
-              <div className="product-row-main">
-                <div className="product-thumb-wrap">
-                  {item.imageUrl ? (
-                    <img src={item.imageUrl} alt={item.name || "Sản phẩm"} className="product-thumb" />
-                  ) : (
-                    <div className="product-thumb product-thumb-fallback">{(item.name || "SP").slice(0, 2).toUpperCase()}</div>
-                  )}
-                </div>
-                <div>
-                  <strong>{item.name || "Không tên"}</strong>
-                  <p>{item.sku || "-"} · {item.category?.name || "Chưa phân loại"}</p>
-                  <div className="product-inline-tags">
-                    <span className="product-chip">Tồn: {number.format(inventoryMap.get(item.id) || 0)}</span>
-                    <span className="product-chip">Giá vốn: {money.format(Number(item.costPrice || 0))}</span>
-                  </div>
-                </div>
-              </div>
-              <div className="product-row-actions">
-                <span>{money.format(Number(item.defaultPrice || 0))}</span>
+      <PullToRefreshSection onRefresh={onRefresh} disabled={loading}>
+        <section className="list-card">
+          <header>
+            <h3>Danh sách sản phẩm</h3>
+            <div className="list-card-actions">
+              <span>{number.format(filteredRows.length)} bản ghi</span>
+              <div className="filter-menu-wrap">
                 <button
                   type="button"
-                  className="view-btn"
-                  onMouseDown={(event) => event.stopPropagation()}
-                  onTouchStart={(event) => event.stopPropagation()}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    openProductDetail(item);
-                  }}
+                  className="btn-secondary"
+                  onClick={() => setShowFilterMenu((open) => !open)}
+                  aria-expanded={showFilterMenu}
                 >
-                  Xem
+                  {productFilterLabel}
                 </button>
+                {showFilterMenu ? (
+                  <div className="filter-dropdown" role="menu" aria-label="Bộ lọc sản phẩm">
+                    <button
+                      type="button"
+                      className={`filter-option ${productFilter === "LOW_STOCK" ? "active" : ""}`}
+                      onClick={() => { setProductFilter("LOW_STOCK"); setShowFilterMenu(false); }}
+                    >
+                      Tồn kho thấp
+                    </button>
+                    <button
+                      type="button"
+                      className={`filter-option ${productFilter === "HIGH_STOCK" ? "active" : ""}`}
+                      onClick={() => { setProductFilter("HIGH_STOCK"); setShowFilterMenu(false); }}
+                    >
+                      Tồn kho cao
+                    </button>
+                    <button
+                      type="button"
+                      className={`filter-option ${productFilter === "COST_DESC" ? "active" : ""}`}
+                      onClick={() => { setProductFilter("COST_DESC"); setShowFilterMenu(false); }}
+                    >
+                      Giá vốn thấp giảm dần
+                    </button>
+                    <button
+                      type="button"
+                      className={`filter-option ${productFilter === "COST_ASC" ? "active" : ""}`}
+                      onClick={() => { setProductFilter("COST_ASC"); setShowFilterMenu(false); }}
+                    >
+                      Giá vốn tăng dần
+                    </button>
+                    <button
+                      type="button"
+                      className="filter-option filter-option-reset"
+                      onClick={() => { setProductFilter("NONE"); setShowFilterMenu(false); }}
+                    >
+                      Đặt lại bộ lọc
+                    </button>
+                  </div>
+                ) : null}
               </div>
-            </li>
-          ))}
-          {!rows.length ? <li className="empty-row">Không có dữ liệu phù hợp.</li> : null}
-        </ul>
-        {rows.length < filteredRows.length ? (
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={() => setVisibleProductCount((count) => count + 20)}
-          >
-            Xem thêm 20 sản phẩm
-          </button>
-        ) : null}
-      </section>
+              <button type="button" className="btn-primary" onClick={openCreateProductDialog}>+ Tạo mới</button>
+            </div>
+          </header>
+          <ul>
+            {rows.map((item) => (
+              <li key={item.id} className="product-row">
+                <div className="product-row-main">
+                  <div className="product-thumb-wrap">
+                    {item.imageUrl ? (
+                      <img src={item.imageUrl} alt={item.name || "Sản phẩm"} className="product-thumb" />
+                    ) : (
+                      <div className="product-thumb product-thumb-fallback">{(item.name || "SP").slice(0, 2).toUpperCase()}</div>
+                    )}
+                  </div>
+                  <div>
+                    <strong>{item.name || "Không tên"}</strong>
+                    <p>{item.sku || "-"} · {item.category?.name || "Chưa phân loại"}</p>
+                    <div className="product-inline-tags">
+                      <span className="product-chip">Tồn: {number.format(inventoryMap.get(item.id) || 0)}</span>
+                      <span className="product-chip">Giá vốn: {money.format(Number(item.costPrice || 0))}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="product-row-actions">
+                  <span>{money.format(Number(item.defaultPrice || 0))}</span>
+                  <button
+                    type="button"
+                    className="view-btn"
+                    onMouseDown={(event) => event.stopPropagation()}
+                    onTouchStart={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openProductDetail(item);
+                    }}
+                  >
+                    Xem
+                  </button>
+                </div>
+              </li>
+            ))}
+            {!rows.length ? <li className="empty-row">Không có dữ liệu phù hợp.</li> : null}
+          </ul>
+          {rows.length < filteredRows.length ? (
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => setVisibleProductCount((count) => count + 20)}
+            >
+              Xem thêm 20 sản phẩm
+            </button>
+          ) : null}
+        </section>
+      </PullToRefreshSection>
 
       {selectedProduct ? (
         <div className="dialog-overlay">
@@ -1458,15 +1627,27 @@ function ProductsPanel({ payload, query, loading, onSaveSupplierQuote, onCreateP
                       {(editForm.imageGallery || []).map((img, idx) => (
                         <div key={idx} style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
                           <img src={img.url} alt={`Ảnh ${idx + 1}`} style={{ width: 64, height: 64, borderRadius: 8, objectFit: "cover", border: img.isDefault ? "2px solid #3b82f6" : "1px solid #e2e8f0" }} />
-                          <div style={{ display: "flex", gap: 3 }}>
-                            {!img.isDefault ? (
-                              <button type="button" style={{ fontSize: 11, padding: "1px 5px", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 4, cursor: "pointer", color: "#2563eb" }}
-                                onClick={() => setEditForm((prev) => ({ ...prev, imageGallery: (prev.imageGallery || []).map((g, i) => ({ ...g, isDefault: i === idx })) }))}>
-                                Mặc định
-                              </button>
-                            ) : (
-                              <span style={{ fontSize: 11, color: "#2563eb", fontWeight: 600 }}>✓ M.định</span>
-                            )}
+                          <div style={{ display: "flex", gap: 3, alignItems: "center" }}>
+                            <button
+                              type="button"
+                              style={{
+                                fontSize: 11,
+                                padding: "1px 5px",
+                                background: img.isDefault ? "#dbeafe" : "#eff6ff",
+                                border: "1px solid #bfdbfe",
+                                borderRadius: 4,
+                                cursor: img.isDefault ? "default" : "pointer",
+                                color: "#2563eb",
+                                fontWeight: img.isDefault ? 600 : 500
+                              }}
+                              disabled={img.isDefault}
+                              onClick={() => setEditForm((prev) => ({
+                                ...prev,
+                                imageGallery: (prev.imageGallery || []).map((g, i) => ({ ...g, isDefault: i === idx }))
+                              }))}
+                            >
+                              {img.isDefault ? "✓ M.định" : "Mặc định"}
+                            </button>
                             <button type="button" style={{ fontSize: 11, padding: "1px 5px", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 4, cursor: "pointer", color: "#dc2626" }}
                               onClick={() => setEditForm((prev) => {
                                 const next = (prev.imageGallery || []).filter((_, i) => i !== idx);
@@ -1476,6 +1657,19 @@ function ProductsPanel({ payload, query, loading, onSaveSupplierQuote, onCreateP
                               Xóa
                             </button>
                           </div>
+                          <label style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: "#334155" }}>
+                            <input
+                              type="checkbox"
+                              checked={img.showOnCorporate !== false}
+                              onChange={(event) => setEditForm((prev) => ({
+                                ...prev,
+                                imageGallery: (prev.imageGallery || []).map((g, i) => (
+                                  i === idx ? { ...g, showOnCorporate: event.target.checked } : g
+                                ))
+                              }))}
+                            />
+                            Corporate
+                          </label>
                         </div>
                       ))}
                     </div>
@@ -1700,7 +1894,7 @@ function ProductsPanel({ payload, query, loading, onSaveSupplierQuote, onCreateP
   );
 }
 
-function CustomersPanel({ token, payload, query, loading, selectedStoreId, onCreateCustomer }) {
+function CustomersPanel({ token, payload, query, loading, onRefresh, selectedStoreId, onCreateCustomer }) {
   const customerTierLabel = {
     LEVEL_2_SPECIAL: "Khách đặc biệt",
     LEVEL_2: "Khách bán sỉ",
@@ -2273,88 +2467,90 @@ function CustomersPanel({ token, payload, query, loading, selectedStoreId, onCre
         <StatCard title="Khách hàng" value={toNumberText(highlights.customersCount, loading)} hint="Theo cửa hàng đã chọn" />
         <StatCard title="Chiến dịch" value={toNumberText(highlights.promotionCount, loading)} hint="Số cấu hình khuyến mãi" />
       </section>
-      <section className="list-card">
-        <header>
-          <h3>Ds khách hàng</h3>
-          <div className="list-card-actions">
-            <span>{number.format(filteredRows.length)} bản ghi</span>
-            <div className="filter-menu-wrap">
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => setShowCustomerFilterMenu((open) => !open)}
-                aria-expanded={showCustomerFilterMenu}
-              >
-                {customerFilterLabel}
-              </button>
-              {showCustomerFilterMenu ? (
-                <div className="filter-dropdown" role="menu" aria-label="Bộ lọc khách hàng">
-                  <button
-                    type="button"
-                    className={`filter-option ${customerFilter === "REVENUE_ASC" ? "active" : ""}`}
-                    onClick={() => { setCustomerFilter("REVENUE_ASC"); setShowCustomerFilterMenu(false); }}
-                  >
-                    Doanh thu tăng dần
-                  </button>
-                  <button
-                    type="button"
-                    className={`filter-option ${customerFilter === "REVENUE_DESC" ? "active" : ""}`}
-                    onClick={() => { setCustomerFilter("REVENUE_DESC"); setShowCustomerFilterMenu(false); }}
-                  >
-                    Doanh thu giảm dần
-                  </button>
-                  <button
-                    type="button"
-                    className={`filter-option ${customerFilter === "DEBT_ASC" ? "active" : ""}`}
-                    onClick={() => { setCustomerFilter("DEBT_ASC"); setShowCustomerFilterMenu(false); }}
-                  >
-                    Công nợ tăng dần
-                  </button>
-                  <button
-                    type="button"
-                    className={`filter-option ${customerFilter === "DEBT_DESC" ? "active" : ""}`}
-                    onClick={() => { setCustomerFilter("DEBT_DESC"); setShowCustomerFilterMenu(false); }}
-                  >
-                    Công nợ giảm dần
-                  </button>
-                  <button
-                    type="button"
-                    className="filter-option filter-option-reset"
-                    onClick={() => { setCustomerFilter("NONE"); setShowCustomerFilterMenu(false); }}
-                  >
-                    Đặt lại bộ lọc
-                  </button>
-                </div>
-              ) : null}
+      <PullToRefreshSection onRefresh={onRefresh} disabled={loading}>
+        <section className="list-card">
+          <header>
+            <h3>Ds khách hàng</h3>
+            <div className="list-card-actions">
+              <span>{number.format(filteredRows.length)} bản ghi</span>
+              <div className="filter-menu-wrap">
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => setShowCustomerFilterMenu((open) => !open)}
+                  aria-expanded={showCustomerFilterMenu}
+                >
+                  {customerFilterLabel}
+                </button>
+                {showCustomerFilterMenu ? (
+                  <div className="filter-dropdown" role="menu" aria-label="Bộ lọc khách hàng">
+                    <button
+                      type="button"
+                      className={`filter-option ${customerFilter === "REVENUE_ASC" ? "active" : ""}`}
+                      onClick={() => { setCustomerFilter("REVENUE_ASC"); setShowCustomerFilterMenu(false); }}
+                    >
+                      Doanh thu tăng dần
+                    </button>
+                    <button
+                      type="button"
+                      className={`filter-option ${customerFilter === "REVENUE_DESC" ? "active" : ""}`}
+                      onClick={() => { setCustomerFilter("REVENUE_DESC"); setShowCustomerFilterMenu(false); }}
+                    >
+                      Doanh thu giảm dần
+                    </button>
+                    <button
+                      type="button"
+                      className={`filter-option ${customerFilter === "DEBT_ASC" ? "active" : ""}`}
+                      onClick={() => { setCustomerFilter("DEBT_ASC"); setShowCustomerFilterMenu(false); }}
+                    >
+                      Công nợ tăng dần
+                    </button>
+                    <button
+                      type="button"
+                      className={`filter-option ${customerFilter === "DEBT_DESC" ? "active" : ""}`}
+                      onClick={() => { setCustomerFilter("DEBT_DESC"); setShowCustomerFilterMenu(false); }}
+                    >
+                      Công nợ giảm dần
+                    </button>
+                    <button
+                      type="button"
+                      className="filter-option filter-option-reset"
+                      onClick={() => { setCustomerFilter("NONE"); setShowCustomerFilterMenu(false); }}
+                    >
+                      Đặt lại bộ lọc
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+              <button type="button" className="btn-primary" onClick={openCreateCustomerDialog}>+Khách hàng</button>
             </div>
-            <button type="button" className="btn-primary" onClick={openCreateCustomerDialog}>+Khách hàng</button>
-          </div>
-        </header>
-        <ul>
-          {rows.map((item) => (
-            <li key={item.id}>
-              <div>
-                <strong>{item.name || "Không tên"}</strong>
-                <p>{item.phone || "-"}</p>
-              </div>
-              <div className="customer-row-actions">
-                <span>{money.format(Number(item.netBalance || 0))}</span>
-                <button type="button" className="view-btn" onClick={() => openCustomerDetail(item)}>Xem</button>
-              </div>
-            </li>
-          ))}
-          {!rows.length ? <li className="empty-row">Không có dữ liệu phù hợp.</li> : null}
-        </ul>
-        {rows.length < filteredRows.length ? (
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={() => setVisibleCustomerCount((count) => count + 20)}
-          >
-            Xem thêm 20 khách hàng
-          </button>
-        ) : null}
-      </section>
+          </header>
+          <ul>
+            {rows.map((item) => (
+              <li key={item.id}>
+                <div>
+                  <strong>{item.name || "Không tên"}</strong>
+                  <p>{item.phone || "-"}</p>
+                </div>
+                <div className="customer-row-actions">
+                  <span>{money.format(Number(item.netBalance || 0))}</span>
+                  <button type="button" className="view-btn" onClick={() => openCustomerDetail(item)}>Xem</button>
+                </div>
+              </li>
+            ))}
+            {!rows.length ? <li className="empty-row">Không có dữ liệu phù hợp.</li> : null}
+          </ul>
+          {rows.length < filteredRows.length ? (
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => setVisibleCustomerCount((count) => count + 20)}
+            >
+              Xem thêm 20 khách hàng
+            </button>
+          ) : null}
+        </section>
+      </PullToRefreshSection>
 
       {selectedCustomer ? (
         <div className="dialog-overlay" onClick={() => setSelectedCustomer(null)}>
@@ -2722,7 +2918,7 @@ const PERIOD_TO_AREA_PRESET = {
   LAST_YEAR: "last-year"
 };
 
-function OverviewPanel({ payload, loading, token }) {
+function OverviewPanel({ payload, loading, token, onRefresh }) {
   const [periodFilter, setPeriodFilter] = useState("THIS_MONTH");
   const [overviewTrackingFilter, setOverviewTrackingFilter] = useState("TRACKED_ONLY");
   const [categoryFilter, setCategoryFilter] = useState("ALL");
@@ -3191,7 +3387,7 @@ function OverviewPanel({ payload, loading, token }) {
   ]);
 
   return (
-    <>
+    <PullToRefreshSection onRefresh={onRefresh} disabled={loading}>
       <section className="detail-card" style={{ display: "grid", gap: 8 }}>
         <h3 style={{ margin: 0 }}>Theo dõi tổng quan</h3>
         <div className="overview-filter-grid">
@@ -3411,7 +3607,7 @@ function OverviewPanel({ payload, loading, token }) {
           });
         })()}
       </section>
-    </>
+    </PullToRefreshSection>
   );
 }
 
@@ -3840,6 +4036,40 @@ function MorePanel({
                 <div className="cinfo-row"><span>DB trạng thái</span><span style={{ color: serverHealth.database?.status === "ok" ? "#16a34a" : "#dc2626", fontWeight: 600 }}>{serverHealth.database?.status === "ok" ? "Kết nối tốt" : "Lỗi"}</span></div>
                 <div className="cinfo-row"><span>DB ping</span><span>{serverHealth.database?.pingMs != null ? `${serverHealth.database.pingMs} ms` : "?"}</span></div>
               </div>
+
+              {/* DB storage size */}
+              <div>
+                <div style={{ fontWeight: 600, fontSize: "0.8rem", color: "#475569", marginBottom: 4 }}>Dung lượng DB</div>
+                <div style={{ fontSize: "0.82rem", color: "#334155" }}>
+                  {serverHealth.database?.sizeMb != null
+                    ? serverHealth.database.sizeMb >= 1024
+                      ? `${(serverHealth.database.sizeMb / 1024).toFixed(2)} GB`
+                      : `${serverHealth.database.sizeMb} MB`
+                    : "Không có dữ liệu"}
+                </div>
+              </div>
+
+              {/* VPS disk */}
+              <div>
+                <div style={{ fontWeight: 600, fontSize: "0.8rem", color: "#475569", marginBottom: 4 }}>Ổ đĩa VPS</div>
+                {serverHealth.disk?.totalGb != null ? (
+                  <>
+                    <div style={{ background: "#e2e8f0", borderRadius: 6, height: 10, overflow: "hidden", marginBottom: 4 }}>
+                      <div style={{
+                        width: `${serverHealth.disk.usedPct ?? 0}%`,
+                        background: (serverHealth.disk.usedPct ?? 0) > 85 ? "#ef4444" : "#f59e0b",
+                        height: 10, borderRadius: 6, transition: "width 0.4s"
+                      }} />
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.78rem", color: "#64748b" }}>
+                      <span>Đã dùng: {serverHealth.disk.usedGb} GB</span>
+                      <span>Tổng: {serverHealth.disk.totalGb} GB ({serverHealth.disk.usedPct}%)</span>
+                    </div>
+                  </>
+                ) : (
+                  <span style={{ fontSize: "0.82rem", color: "#94a3b8" }}>Không khả dụng</span>
+                )}
+              </div>
             </>
           ) : (
             <p style={{ margin: 0, color: "#64748b", fontSize: "0.82rem" }}>Đang tải thông tin hệ thống...</p>
@@ -4153,6 +4383,32 @@ function StaffKpiScreen({ token, selectedStoreId, payload }) {
       .sort((a, b) => Number(b?.netBalance || 0) - Number(a?.netBalance || 0));
   }, [payload.customers, selectedRow]);
 
+  const refreshStaffKpi = async () => {
+    if (!token || !selectedStoreId) {
+      setKpiRows([]);
+      setKpiError("Vui lòng chọn cửa hàng để xem KPI nhân viên.");
+      return;
+    }
+    if (!positionId) {
+      setKpiRows([]);
+      setKpiError("");
+      return;
+    }
+
+    try {
+      setKpiLoading(true);
+      setKpiError("");
+      setSelectedRow(null);
+      const rows = await getStaffKpiByPosition(token, { timePeriod, positionId });
+      setKpiRows(rows);
+    } catch (err) {
+      setKpiRows([]);
+      setKpiError(err instanceof Error ? err.message : "Không tải được KPI");
+    } finally {
+      setKpiLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (!token || !selectedStoreId) { setPositions([]); setPositionId(""); return; }
     let cancelled = false;
@@ -4199,7 +4455,8 @@ function StaffKpiScreen({ token, selectedStoreId, payload }) {
   }, [token, selectedStoreId, positionId, timePeriod]);
 
   return (
-    <div style={{ display: "grid", gap: 8 }}>
+    <PullToRefreshSection onRefresh={refreshStaffKpi} disabled={kpiLoading}>
+      <div style={{ display: "grid", gap: 8 }}>
       <section className="detail-card" style={{ display: "grid", gap: 8 }}>
         <div className="kpi-filter-grid">
           <label>
@@ -4293,7 +4550,8 @@ function StaffKpiScreen({ token, selectedStoreId, payload }) {
           </div>
         </div>
       ) : null}
-    </div>
+      </div>
+    </PullToRefreshSection>
   );
 }
 
@@ -4304,23 +4562,23 @@ function OrdersScreen({ token, selectedStoreId }) {
   const [search, setSearch] = useState("");
   const [visibleCount, setVisibleCount] = useState(20);
 
+  const refreshOrders = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const data = await getMobileOrders(token, selectedStoreId);
+      setRows(data.slice().sort((a, b) => new Date(b?.createdAt || 0).getTime() - new Date(a?.createdAt || 0).getTime()));
+    } catch (err) {
+      setRows([]);
+      setError(err instanceof Error ? err.message : "Không tải được đơn hàng");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (!token) return;
-    let cancelled = false;
-    const load = async () => {
-      try {
-        setLoading(true);
-        setError("");
-        const data = await getMobileOrders(token, selectedStoreId);
-        if (!cancelled) setRows(data.slice().sort((a, b) => new Date(b?.createdAt || 0).getTime() - new Date(a?.createdAt || 0).getTime()));
-      } catch (err) {
-        if (!cancelled) { setRows([]); setError(err instanceof Error ? err.message : "Không tải được đơn hàng"); }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-    load();
-    return () => { cancelled = true; };
+    refreshOrders();
   }, [token, selectedStoreId]);
 
   useEffect(() => { setVisibleCount(20); }, [search]);
@@ -4332,32 +4590,34 @@ function OrdersScreen({ token, selectedStoreId }) {
   const visible = filtered.slice(0, visibleCount);
 
   return (
-    <section className="list-card">
-      <header>
-        <h3>Đơn hàng</h3>
-        <span>{loading ? "..." : `${number.format(filtered.length)} bản ghi`}</span>
-      </header>
-      <div className="toolbar-grid" style={{ padding: "0 0 8px" }}>
-        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Tìm mã đơn, khách hàng, trạng thái..." />
-      </div>
-      {error ? <p className="form-error in-page">{error}</p> : null}
-      <ul>
-        {loading ? <li className="empty-row">Đang tải đơn hàng...</li> : null}
-        {!loading && visible.map((o) => (
-          <li key={o.id}>
-            <div>
-              <strong>{o.orderNo || o.id}</strong>
-              <p>{o.customer?.name || "Khách lẻ"} · {o.status || "-"} · {formatDateTimeVN(o.createdAt)}</p>
-            </div>
-            <span>{money.format(Number(o.totalAmount || 0))}</span>
-          </li>
-        ))}
-        {!loading && !filtered.length ? <li className="empty-row">Không có đơn hàng phù hợp.</li> : null}
-      </ul>
-      {visibleCount < filtered.length ? (
-        <button type="button" className="btn-secondary" onClick={() => setVisibleCount((c) => c + 20)}>Xem thêm 20 đơn</button>
-      ) : null}
-    </section>
+    <PullToRefreshSection onRefresh={refreshOrders} disabled={loading}>
+      <section className="list-card">
+        <header>
+          <h3>Đơn hàng</h3>
+          <span>{loading ? "..." : `${number.format(filtered.length)} bản ghi`}</span>
+        </header>
+        <div className="toolbar-grid" style={{ padding: "0 0 8px" }}>
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Tìm mã đơn, khách hàng, trạng thái..." />
+        </div>
+        {error ? <p className="form-error in-page">{error}</p> : null}
+        <ul>
+          {loading ? <li className="empty-row">Đang tải đơn hàng...</li> : null}
+          {!loading && visible.map((o) => (
+            <li key={o.id}>
+              <div>
+                <strong>{o.orderNo || o.id}</strong>
+                <p>{o.customer?.name || "Khách lẻ"} · {o.status || "-"} · {formatDateTimeVN(o.createdAt)}</p>
+              </div>
+              <span>{money.format(Number(o.totalAmount || 0))}</span>
+            </li>
+          ))}
+          {!loading && !filtered.length ? <li className="empty-row">Không có đơn hàng phù hợp.</li> : null}
+        </ul>
+        {visibleCount < filtered.length ? (
+          <button type="button" className="btn-secondary" onClick={() => setVisibleCount((c) => c + 20)}>Xem thêm 20 đơn</button>
+        ) : null}
+      </section>
+    </PullToRefreshSection>
   );
 }
 
@@ -4368,23 +4628,23 @@ function ReceiptsScreen({ token, selectedStoreId }) {
   const [search, setSearch] = useState("");
   const [visibleCount, setVisibleCount] = useState(20);
 
+  const refreshReceipts = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const data = await getMobileReceipts(token, selectedStoreId);
+      setRows(data.slice().sort((a, b) => new Date(b?.createdAt || b?.receiptDate || 0).getTime() - new Date(a?.createdAt || a?.receiptDate || 0).getTime()));
+    } catch (err) {
+      setRows([]);
+      setError(err instanceof Error ? err.message : "Không tải được phiếu thu");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (!token) return;
-    let cancelled = false;
-    const load = async () => {
-      try {
-        setLoading(true);
-        setError("");
-        const data = await getMobileReceipts(token, selectedStoreId);
-        if (!cancelled) setRows(data.slice().sort((a, b) => new Date(b?.createdAt || b?.receiptDate || 0).getTime() - new Date(a?.createdAt || a?.receiptDate || 0).getTime()));
-      } catch (err) {
-        if (!cancelled) { setRows([]); setError(err instanceof Error ? err.message : "Không tải được phiếu thu"); }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-    load();
-    return () => { cancelled = true; };
+    refreshReceipts();
   }, [token, selectedStoreId]);
 
   useEffect(() => { setVisibleCount(20); }, [search]);
@@ -4396,32 +4656,34 @@ function ReceiptsScreen({ token, selectedStoreId }) {
   const visible = filtered.slice(0, visibleCount);
 
   return (
-    <section className="list-card">
-      <header>
-        <h3>Phiếu thu</h3>
-        <span>{loading ? "..." : `${number.format(filtered.length)} bản ghi`}</span>
-      </header>
-      <div className="toolbar-grid" style={{ padding: "0 0 8px" }}>
-        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Tìm mã phiếu, khách hàng, trạng thái..." />
-      </div>
-      {error ? <p className="form-error in-page">{error}</p> : null}
-      <ul>
-        {loading ? <li className="empty-row">Đang tải phiếu thu...</li> : null}
-        {!loading && visible.map((r) => (
-          <li key={r.id}>
-            <div>
-              <strong>{r.receiptNo || r.id}</strong>
-              <p>{r.customer?.name || "Khách lẻ"} · {r.type || "PAYMENT"} · {r.status || "ACTIVE"} · {formatDateTimeVN(r.createdAt || r.receiptDate)}</p>
-            </div>
-            <span>{money.format(Number(r.amount || 0) + Number(r.discountAmount || 0))}</span>
-          </li>
-        ))}
-        {!loading && !filtered.length ? <li className="empty-row">Không có phiếu thu phù hợp.</li> : null}
-      </ul>
-      {visibleCount < filtered.length ? (
-        <button type="button" className="btn-secondary" onClick={() => setVisibleCount((c) => c + 20)}>Xem thêm 20 phiếu</button>
-      ) : null}
-    </section>
+    <PullToRefreshSection onRefresh={refreshReceipts} disabled={loading}>
+      <section className="list-card">
+        <header>
+          <h3>Phiếu thu</h3>
+          <span>{loading ? "..." : `${number.format(filtered.length)} bản ghi`}</span>
+        </header>
+        <div className="toolbar-grid" style={{ padding: "0 0 8px" }}>
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Tìm mã phiếu, khách hàng, trạng thái..." />
+        </div>
+        {error ? <p className="form-error in-page">{error}</p> : null}
+        <ul>
+          {loading ? <li className="empty-row">Đang tải phiếu thu...</li> : null}
+          {!loading && visible.map((r) => (
+            <li key={r.id}>
+              <div>
+                <strong>{r.receiptNo || r.id}</strong>
+                <p>{r.customer?.name || "Khách lẻ"} · {r.type || "PAYMENT"} · {r.status || "ACTIVE"} · {formatDateTimeVN(r.createdAt || r.receiptDate)}</p>
+              </div>
+              <span>{money.format(Number(r.amount || 0) + Number(r.discountAmount || 0))}</span>
+            </li>
+          ))}
+          {!loading && !filtered.length ? <li className="empty-row">Không có phiếu thu phù hợp.</li> : null}
+        </ul>
+        {visibleCount < filtered.length ? (
+          <button type="button" className="btn-secondary" onClick={() => setVisibleCount((c) => c + 20)}>Xem thêm 20 phiếu</button>
+        ) : null}
+      </section>
+    </PullToRefreshSection>
   );
 }
 
