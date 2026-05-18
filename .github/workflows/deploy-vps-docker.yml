@@ -44,14 +44,13 @@ jobs:
         env:
           VPS_HOST: ${{ secrets.VPS_HOST || '27.71.26.161' }}
           VPS_PORT: ${{ secrets.VPS_PORT || secrets.SSH_PORT || '22' }}
-          VPS_USER: ${{ secrets.VPS_USER || secrets.SSH_USER }}
+          VPS_USER: ${{ secrets.VPS_USER || secrets.SSH_USER || 'root' }}
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY || secrets.VPS_KEY || secrets.SSH_PRIVATE_KEY }}
           VPS_PASSWORD: ${{ secrets.VPS_PASSWORD || secrets.SSH_PASSWORD }}
         run: |
           set -e
           [ -n "$VPS_HOST" ] || { echo "::error::Missing VPS_HOST (secret or fallback)"; exit 1; }
           [ -n "$VPS_PORT" ] || { echo "::error::Missing VPS_PORT"; exit 1; }
-          [ -n "$VPS_USER" ] || { echo "::error::Missing secret VPS_USER"; exit 1; }
           if [ -z "$VPS_SSH_KEY" ] && [ -z "$VPS_PASSWORD" ]; then
             echo "::error::Missing SSH credentials. Set one of: VPS_SSH_KEY/VPS_KEY/SSH_PRIVATE_KEY or VPS_PASSWORD/SSH_PASSWORD"
             exit 1
@@ -64,7 +63,7 @@ jobs:
           FRONTEND_TARGET: ${{ github.event.inputs.frontend_target || 'all' }}
         with:
           host: ${{ secrets.VPS_HOST || '27.71.26.161' }}
-          username: ${{ secrets.VPS_USER || secrets.SSH_USER }}
+          username: ${{ secrets.VPS_USER || secrets.SSH_USER || 'root' }}
           key: ${{ secrets.VPS_SSH_KEY || secrets.VPS_KEY || secrets.SSH_PRIVATE_KEY }}
           password: ${{ secrets.VPS_PASSWORD || secrets.SSH_PASSWORD }}
           port: ${{ secrets.VPS_PORT || secrets.SSH_PORT || '22' }}
