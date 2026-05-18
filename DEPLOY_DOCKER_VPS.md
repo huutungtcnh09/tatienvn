@@ -108,6 +108,28 @@ Muc tieu la giam thoi gian cap nhat khi cac app frontend duoc chinh sua thuong x
 
 Luu y: `mobile` build trong Docker Compose duoc ep qua `network: host` de tranh loi DNS tam thoi khi lay package tu `registry.npmjs.org`. Workflow deploy cung co retry 1 lan neu `docker compose up` bi truot vi loi mang.
 
+### Workflow rieng cho POS
+
+Repo co them workflow rieng `deploy-pos-vps.yml` de cap nhat nhanh app POS ma khong can deploy full stack.
+
+- Trigger tu dong khi push vao `main` va co thay doi trong:
+  - `apps/store-pos/**`
+  - `shared/**`
+  - `deploy/Caddyfile`
+  - `deploy/nginx-spa.conf`
+  - `deploy/docker-compose.prod.yml`
+  - `package.json`, `package-lock.json`
+- Co the chay tay tu tab Actions bang `workflow_dispatch`.
+- Lenh deploy tren VPS:
+  - `docker compose -f deploy/docker-compose.prod.yml up -d --build store-pos caddy`
+
+Workflow nay su dung lai bo secrets SSH giong workflow chinh:
+
+- `VPS_HOST`
+- `VPS_PORT`
+- `VPS_USER`
+- `VPS_SSH_KEY` (hoac `VPS_PASSWORD`)
+
 ## 8) Luu y van hanh
 
 - Khong commit `deploy/.env.prod` len git.
