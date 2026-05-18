@@ -1,26 +1,20 @@
-name: Deploy Head Corporate VPS
+name: Deploy Corporate Web VPS
 
 on:
   push:
     branches:
       - main
     paths:
-      - "apps/head-office/**"
       - "apps/corporate-web/**"
-      - "deploy/Caddyfile"
-      - "deploy/nginx-spa.conf"
-      - "deploy/docker-compose.prod.yml"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/deploy-head-corporate-vps.yml"
+      - ".github/workflows/deploy-corporate-vps.yml"
   workflow_dispatch:
 
 concurrency:
-  group: deploy-head-corporate-vps
+  group: deploy-corporate-vps
   cancel-in-progress: true
 
 jobs:
-  deploy-head-corporate:
+  deploy-corporate:
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -47,7 +41,7 @@ jobs:
             exit 1
           fi
 
-      - name: Deploy Head and Corporate over SSH
+      - name: Deploy Corporate Web over SSH
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.VPS_HOST || '27.71.26.161' }}
@@ -75,24 +69,18 @@ jobs:
               done
             }
 
-            retry "docker compose -f deploy/docker-compose.prod.yml up -d --build head-office corporate-web caddy"
+            retry "docker compose -f deploy/docker-compose.prod.yml up -d --build corporate-web caddy"
 
-            docker compose -f deploy/docker-compose.prod.yml ps head-office corporate-web caddy
-
-            HEAD_ASSET=$(curl -s https://admin.tatien.vn | grep -o '/assets/index-[^\" ]*\\.js' | head -n 1)
+            docker compose -f deploy/docker-compose.prod.yml ps corporate-web caddy
             CORP_ASSET=$(curl -s https://tatien.vn | grep -o '/assets/index-[^\" ]*\\.js' | head -n 1)
-
-            echo "Head asset: ${HEAD_ASSET}"
             echo "Corporate asset: ${CORP_ASSET}"
-
-            [ -n "$HEAD_ASSET" ] || { echo "Unable to read Head Office asset from domain"; exit 1; }
             [ -n "$CORP_ASSET" ] || { echo "Unable to read Corporate asset from domain"; exit 1; }
 
       - name: Deployment summary
         if: ${{ always() }}
         run: |
           {
-            echo "## Head + Corporate Deploy Result"
+            echo "## Corporate Web Deploy Result"
             echo ""
             echo "- Status: ${{ job.status }}"
             echo "- Ref: $GITHUB_REF"
