@@ -1,0 +1,101 @@
+name: Deploy Head Corporate VPS
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/head-office/**"
+      - "apps/corporate-web/**"
+      - "deploy/Caddyfile"
+      - "deploy/nginx-spa.conf"
+      - "deploy/docker-compose.prod.yml"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/deploy-head-corporate-vps.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-head-corporate-vps
+  cancel-in-progress: true
+
+jobs:
+  deploy-head-corporate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Guard main branch only
+        if: ${{ github.ref != 'refs/heads/main' }}
+        run: |
+          echo "::error::This workflow only deploys from main. Current ref: $GITHUB_REF"
+          exit 1
+
+      - name: Validate deploy secrets
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST || '27.71.26.161' }}
+          VPS_PORT: ${{ secrets.VPS_PORT || secrets.SSH_PORT || '22' }}
+          VPS_USER: ${{ secrets.VPS_USER || secrets.SSH_USER || 'root' }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY || secrets.VPS_KEY || secrets.SSH_PRIVATE_KEY }}
+          VPS_PASSWORD: ${{ secrets.VPS_PASSWORD || secrets.SSH_PASSWORD }}
+        run: |
+          set -e
+          [ -n "$VPS_HOST" ] || { echo "::error::Missing VPS_HOST"; exit 1; }
+          [ -n "$VPS_PORT" ] || { echo "::error::Missing VPS_PORT"; exit 1; }
+          if [ -z "$VPS_SSH_KEY" ] && [ -z "$VPS_PASSWORD" ]; then
+            echo "::error::Missing SSH credentials. Set one of VPS_SSH_KEY/VPS_KEY/SSH_PRIVATE_KEY or VPS_PASSWORD/SSH_PASSWORD"
+            exit 1
+          fi
+
+      - name: Deploy Head and Corporate over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST || '27.71.26.161' }}
+          username: ${{ secrets.VPS_USER || secrets.SSH_USER || 'root' }}
+          key: ${{ secrets.VPS_SSH_KEY || secrets.VPS_KEY || secrets.SSH_PRIVATE_KEY }}
+          password: ${{ secrets.VPS_PASSWORD || secrets.SSH_PASSWORD }}
+          port: ${{ secrets.VPS_PORT || secrets.SSH_PORT || '22' }}
+          script: |
+            set -e
+            cd /opt/app-kd
+            git fetch --all
+            git reset --hard origin/main
+
+            retry() {
+              cmd="$1"
+              attempt=1
+              until sh -lc "$cmd"; do
+                if [ "$attempt" -ge 2 ]; then
+                  echo "Command failed after retry: $cmd"
+                  return 1
+                fi
+                echo "Command failed, retrying once..."
+                attempt=$((attempt + 1))
+                sleep 3
+              done
+            }
+
+            retry "docker compose -f deploy/docker-compose.prod.yml up -d --build head-office corporate-web caddy"
+
+            docker compose -f deploy/docker-compose.prod.yml ps head-office corporate-web caddy
+
+            HEAD_ASSET=$(curl -s https://admin.tatien.vn | grep -o '/assets/index-[^\" ]*\\.js' | head -n 1)
+            CORP_ASSET=$(curl -s https://tatien.vn | grep -o '/assets/index-[^\" ]*\\.js' | head -n 1)
+
+            echo "Head asset: ${HEAD_ASSET}"
+            echo "Corporate asset: ${CORP_ASSET}"
+
+            [ -n "$HEAD_ASSET" ] || { echo "Unable to read Head Office asset from domain"; exit 1; }
+            [ -n "$CORP_ASSET" ] || { echo "Unable to read Corporate asset from domain"; exit 1; }
+
+      - name: Deployment summary
+        if: ${{ always() }}
+        run: |
+          {
+            echo "## Head + Corporate Deploy Result"
+            echo ""
+            echo "- Status: ${{ job.status }}"
+            echo "- Ref: $GITHUB_REF"
+            echo "- Commit: $GITHUB_SHA"
+            echo "- Triggered by: $GITHUB_ACTOR"
+          } >> "$GITHUB_STEP_SUMMARY"
