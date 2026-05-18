@@ -28,11 +28,24 @@ import { requireAuth } from "./middleware/auth.js";
 import { initializeRbacStorage } from "./security/rbac-storage.js";
 
 const app = express();
+const allowedCorsOrigins = new Set(config.corsOrigin);
 
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
-app.use(cors({ origin: config.corsOrigin }));
+app.use(cors({
+  origin(origin, callback) {
+    // Allow non-browser or same-origin requests that do not send Origin.
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+
+    const normalizedOrigin = origin.trim().replace(/\/$/, "").toLowerCase();
+    const isAllowed = allowedCorsOrigins.has("*") || allowedCorsOrigins.has(normalizedOrigin);
+    callback(isAllowed ? null : new Error(`Origin not allowed by CORS: ${origin}`), isAllowed);
+  }
+}));
 app.use(express.json({ limit: "64kb" }));
 app.use("/uploads", express.static(path.resolve(process.env.UPLOAD_DIR ?? "./uploads")));
 
