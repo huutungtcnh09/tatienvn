@@ -1,8 +1,8 @@
 import { useState } from "react";
 
 export default function Login({ onLogin, onClearSession }) {
-  const [email, setEmail] = useState("huutungtcnh09@gmail.com");
-  const [password, setPassword] = useState("123456");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -28,9 +28,9 @@ export default function Login({ onLogin, onClearSession }) {
       <p>Vận hành bán hàng tại cửa hàng</p>
       {errorMessage ? <div className="login-error">{errorMessage}</div> : null}
       <label>Email</label>
-      <input value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" />
+      <input value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" placeholder="Nhập email đăng nhập" />
       <label>Mật khẩu</label>
-      <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
+      <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" placeholder="Nhập mật khẩu" />
       <div className="login-actions">
         <button type="button" className="btn-cancel" onClick={onClearSession}>Xóa phiên cũ</button>
         <button type="submit" disabled={isSubmitting}>{isSubmitting ? "Đang đăng nhập..." : "Đăng nhập"}</button>

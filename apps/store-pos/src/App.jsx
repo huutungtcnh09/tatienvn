@@ -33,6 +33,10 @@ function isAuthErrorMessage(message) {
   return ["unauthorized", "jwt", "token", "đăng nhập", "phiên đăng nhập", "hết hạn"].some((keyword) => text.includes(keyword));
 }
 
+function getBlockingMessageTitle(message) {
+  return isPermissionDeniedMessage(message) ? "Bạn chưa có quyền truy cập" : "Không tải được dữ liệu";
+}
+
 function parseMoneyInput(value) {
   const digits = String(value ?? "").replace(/[^\d]/g, "");
   return digits ? String(Number(digits)) : "";
@@ -673,7 +677,9 @@ export default function App() {
       }
       if (isPermissionDeniedMessage(message)) {
         setAccessDeniedMessage(message);
+        return;
       }
+      setAccessDeniedMessage(`Không thể tải dữ liệu từ máy chủ. ${message}`);
     });
   }, [token]);
 
@@ -1291,7 +1297,7 @@ export default function App() {
     return (
       <div className="login-shell">
         <div className="access-denied-card">
-          <h2>Bạn chưa có quyền truy cập</h2>
+          <h2>{getBlockingMessageTitle(accessDeniedMessage)}</h2>
           <p>{accessDeniedMessage}</p>
           <div className="access-denied-actions">
             <button
@@ -1309,7 +1315,9 @@ export default function App() {
                   }
                   if (isPermissionDeniedMessage(message)) {
                     setAccessDeniedMessage(message);
+                    return;
                   }
+                  setAccessDeniedMessage(`Không thể tải dữ liệu từ máy chủ. ${message}`);
                 });
               }}
             >
