@@ -749,6 +749,46 @@ export default function App() {
     api.updateWatchlist(token, watchedCustomers).catch(() => {});
   }, [watchedCustomers]);
 
+  const PARTNER_PAGE_SIZE = 200;
+
+  const fetchAllPartners = async () => {
+    let page = 1;
+    let total = Number.POSITIVE_INFINITY;
+    const allRows = [];
+    const seenPartnerIds = new Set();
+    let previousUniqueCount = -1;
+
+    while (allRows.length < total) {
+      const response = await api.partners(token, { page, pageSize: PARTNER_PAGE_SIZE });
+      const rows = Array.isArray(response?.data?.data)
+        ? response.data.data
+        : Array.isArray(response?.data)
+          ? response.data
+          : Array.isArray(response)
+            ? response
+            : [];
+      const nextTotal = Number(response?.data?.total);
+      if (Number.isFinite(nextTotal) && nextTotal >= 0) {
+        total = nextTotal;
+      }
+
+      for (const row of rows) {
+        const partnerId = String(row?.id || "").trim();
+        if (!partnerId || seenPartnerIds.has(partnerId)) continue;
+        seenPartnerIds.add(partnerId);
+        allRows.push(row);
+      }
+
+      if (!rows.length) break;
+      if (allRows.length === previousUniqueCount) break;
+      previousUniqueCount = allRows.length;
+      if (page >= 1000) break;
+      page += 1;
+    }
+
+    return allRows;
+  };
+
   const reloadData = async (dateParams = {}) => {
     const today = new Date();
     // Default to load all orders (10 years back) to capture all unpaid orders
@@ -756,8 +796,8 @@ export default function App() {
     const todayStr = today.toISOString().slice(0, 10);
     const fromDate = dateParams.fromDate || defaultFromDate;
     const toDate = dateParams.toDate || todayStr;
-    const [p, u, op, c, pr, o, r, s, pu, puo, prom, myS, bas] = await Promise.all([
-      api.partners(token, { pageSize: 200 }),
+    const [partnerRows, u, op, c, pr, o, r, s, pu, puo, prom, myS, bas] = await Promise.all([
+      fetchAllPartners(),
       canReadUsers ? api.users(token).catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
       canReadUsers ? api.orgPositions(token, { isActive: true }).catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
       api.categories(token),
@@ -778,8 +818,8 @@ export default function App() {
     const activeStoreId = pool.find((store) => !store.isWarehouse)?.id || pool[0]?.id;
     const inv = activeStoreId ? await api.inventoryByStore(token, activeStoreId) : { data: [] };
 
-    setCustomers((p.data?.data || p.data || []).filter((i) => i.isCustomer));
-    setSuppliers((p.data?.data || p.data || []).filter((i) => i.isSupplier));
+    setCustomers(partnerRows.filter((i) => i.isCustomer));
+    setSuppliers(partnerRows.filter((i) => i.isSupplier));
     setUsers(u.data || []);
     setOrgPositions(op.data || []);
     setCategories(c.data || []);
@@ -862,14 +902,7 @@ export default function App() {
     });
 
     // Refresh customers first so UI can reflect new partner even if other modules fail.
-    const partners = await api.partners(token);
-    const partnerRows = Array.isArray(partners?.data?.data)
-      ? partners.data.data
-      : Array.isArray(partners?.data)
-        ? partners.data
-        : Array.isArray(partners)
-          ? partners
-          : [];
+    const partnerRows = await fetchAllPartners();
     setCustomers(partnerRows.filter((i) => i.isCustomer));
 
     // Best effort refresh for other datasets.
@@ -1021,14 +1054,7 @@ export default function App() {
       isCarrier: false,
       openingBalance: Number(payload.openingBalance || 0)
     });
-    const partners = await api.partners(token);
-    const partnerRows = Array.isArray(partners?.data?.data)
-      ? partners.data.data
-      : Array.isArray(partners?.data)
-        ? partners.data
-        : Array.isArray(partners)
-          ? partners
-          : [];
+    const partnerRows = await fetchAllPartners();
     setSuppliers(partnerRows.filter((i) => i.isSupplier));
     await reloadData().catch(() => null);
     alert("Đã tạo nhà cung cấp");

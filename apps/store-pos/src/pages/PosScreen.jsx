@@ -323,13 +323,13 @@ function renderA5DeliveryNoteHtml(order) {
     const lineTotal = resolvePrintLineTotal(item);
     return `
       <tr>
-        <td class="center">${index + 1}</td>
-        <td>${escapeHtml(code)}</td>
-        <td>${escapeHtml(name)}</td>
-        <td class="center">${qty}</td>
-        <td class="center">${escapeHtml(unit)}</td>
-        <td class="right">${formatCurrency(unitPrice)}</td>
-        <td class="right">${formatCurrency(lineTotal)}</td>
+        <td class="center cell-fit">${index + 1}</td>
+        <td class="cell-code">${escapeHtml(code)}</td>
+        <td class="cell-name">${escapeHtml(name)}</td>
+        <td class="center cell-fit">${qty}</td>
+        <td class="center cell-fit">${escapeHtml(unit)}</td>
+        <td class="right cell-fit">${formatCurrency(unitPrice)}</td>
+        <td class="right cell-fit">${formatCurrency(lineTotal)}</td>
       </tr>
     `;
   }).join("");
@@ -350,13 +350,13 @@ function renderA5DeliveryNoteHtml(order) {
   <table>
     <thead>
       <tr>
-        <th style="width: 38px">STT</th>
-        <th>Mã hàng</th>
-        <th>Tên hàng hóa, dịch vụ</th>
-        <th style="width: 60px">Số lượng</th>
-        <th style="width: 60px">ĐVT</th>
-        <th style="width: 92px">Đơn giá</th>
-        <th style="width: 92px">Thành tiền</th>
+        <th class="cell-fit">STT</th>
+        <th class="cell-code">Mã hàng</th>
+        <th class="cell-name">Tên hàng hóa, dịch vụ</th>
+        <th class="cell-fit">Số lượng</th>
+        <th class="cell-fit">ĐVT</th>
+        <th class="cell-fit">Đơn giá</th>
+        <th class="cell-fit">Thành tiền</th>
       </tr>
     </thead>
     <tbody>${itemRows}</tbody>
@@ -387,8 +387,8 @@ function renderA5DeliveryNoteHtml(order) {
   <meta charset="utf-8" />
   <title>Phiếu giao hàng ${escapeHtml(orderNo)}</title>
   <style>
-    @page { size: A5; margin: 10mm; }
-    body { font-family: "Times New Roman", serif; color: #111; font-size: 14px; }
+    @page { size: A5; margin: 5mm; }
+    body { font-family: "Times New Roman", serif; color: #111; font-size: 14px; margin: 0; }
     .company { text-align: center; font-size: 24px; font-weight: 700; margin: 0 0 4px; }
     .title { text-align: center; font-size: 24px; font-weight: 700; margin: 0 0 8px; }
     .subtitle { text-align: center; margin: 0 0 16px; }
@@ -396,10 +396,14 @@ function renderA5DeliveryNoteHtml(order) {
     .meta-row { display: flex; margin-bottom: 6px; }
     .label { width: 140px; font-weight: 700; }
     table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-    th, td { border: 1px solid #111; padding: 6px; }
+    th, td { border: 1px solid #111; padding: 6px; vertical-align: top; }
     th { text-align: center; }
     .center { text-align: center; }
     .right { text-align: right; white-space: nowrap; }
+    .cell-fit { width: 1%; white-space: nowrap; }
+    .cell-code { width: 16%; }
+    .cell-name { width: auto; }
+    .cell-code, .cell-name { word-break: break-word; }
     .note { margin-top: 10px; }
     .sign { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 34px; }
     .sign-box { text-align: center; }
@@ -1460,20 +1464,34 @@ export default function PosScreen({
   }, [customers]);
 
   const filteredCustomers = useMemo(() => {
-    const term = customerQuery.trim().toLowerCase();
+    const term = normalizeSearchText(customerQuery);
+    const maxVisibleCustomers = 50;
     if (!term) {
       const prioritizedIds = new Set(prioritizedCustomers.map((customer) => customer.id));
       const restCustomers = customers.filter((customer) => !prioritizedIds.has(customer.id));
-      return [...prioritizedCustomers, ...restCustomers].slice(0, 12);
+      return [...prioritizedCustomers, ...restCustomers].slice(0, maxVisibleCustomers);
     }
 
     return customers
-      .filter((c) => {
-        const phone = (c.phone || "").toLowerCase();
-        const code = (c.code || "").toLowerCase();
-        return c.name.toLowerCase().includes(term) || phone.includes(term) || code.includes(term);
+      .map((c) => {
+        const name = normalizeSearchText(c.name);
+        const phone = normalizeSearchText(c.phone);
+        const code = normalizeSearchText(c.code);
+        const matched = name.includes(term) || phone.includes(term) || code.includes(term);
+        if (!matched) return null;
+
+        const exact = Number(name === term || code === term || phone === term);
+        const startsWith = Number(name.startsWith(term) || code.startsWith(term) || phone.startsWith(term));
+        return { customer: c, exact, startsWith };
       })
-      .slice(0, 12);
+      .filter(Boolean)
+      .sort((a, b) => {
+        if (b.exact !== a.exact) return b.exact - a.exact;
+        if (b.startsWith !== a.startsWith) return b.startsWith - a.startsWith;
+        return 0;
+      })
+      .map((entry) => entry.customer)
+      .slice(0, maxVisibleCustomers);
   }, [customerQuery, customers, prioritizedCustomers]);
 
   const positionOptions = useMemo(() => {
