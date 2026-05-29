@@ -5,6 +5,7 @@ coverage/
 .env
 .env.*
 !.env.example
+!apps/store-pos/.env.production
 .vscode/
 .DS_Store
 *.log

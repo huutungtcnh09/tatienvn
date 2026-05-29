@@ -1,4 +1,17 @@
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://localhost:4000").replace(/\/$/, "");
+function resolveDefaultApiBaseUrl() {
+  if (typeof window === "undefined") {
+    return "https://api.tatien.vn";
+  }
+
+  const hostname = String(window.location.hostname || "").toLowerCase();
+  if (hostname === "localhost" || hostname === "127.0.0.1") {
+    return "http://localhost:4000";
+  }
+
+  return "https://api.tatien.vn";
+}
+
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || resolveDefaultApiBaseUrl()).replace(/\/$/, "");
 const API_BASE = `${API_BASE_URL}/api`;
 
 async function request(path, token, options = {}) {
