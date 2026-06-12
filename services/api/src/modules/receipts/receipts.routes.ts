@@ -5,6 +5,7 @@ import { badRequest, created, forbidden, ok } from "../../utils/http.js";
 import { requirePermission } from "../../middleware/authorize.js";
 import type { AuthRequest } from "../../middleware/auth.js";
 import { resolveAssignedStoreIdsForUser } from "../../security/store-assignment.js";
+import { getTodayVietnamUtcRange, toUtcRangeForVietnamDate } from "../../utils/datetime-vn.js";
 
 const router = Router();
 
@@ -98,13 +99,29 @@ router.get("/", requirePermission("receipts:read"), async (req: AuthRequest, res
   const fromDate = req.query.fromDate as string | undefined;
   const toDate = req.query.toDate as string | undefined;
 
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
-  const todayEnd = new Date();
-  todayEnd.setHours(23, 59, 59, 999);
+  const todayRange = getTodayVietnamUtcRange();
+  let dateFrom = todayRange.start;
+  let dateTo = todayRange.end;
 
-  const dateFrom = fromDate ? new Date(fromDate + "T00:00:00") : todayStart;
-  const dateTo = toDate ? new Date(toDate + "T23:59:59") : todayEnd;
+  if (fromDate) {
+    const fromRange = toUtcRangeForVietnamDate(fromDate);
+    if (!fromRange) {
+      return badRequest(res, "Invalid fromDate. Expected yyyy-mm-dd");
+    }
+    dateFrom = fromRange.start;
+  }
+
+  if (toDate) {
+    const toRange = toUtcRangeForVietnamDate(toDate);
+    if (!toRange) {
+      return badRequest(res, "Invalid toDate. Expected yyyy-mm-dd");
+    }
+    dateTo = toRange.end;
+  }
+
+  if (dateFrom.getTime() > dateTo.getTime()) {
+    return badRequest(res, "fromDate must be before or equal to toDate");
+  }
 
   const data = await prisma.receipt.findMany({
     where: {

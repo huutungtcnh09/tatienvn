@@ -153,12 +153,7 @@ export async function getStaffKpiByPosition(token, options = {}) {
 }
 
 export async function getSuppliersWithApi(token, { search = "", selectedStoreId = "" } = {}) {
-  const params = new URLSearchParams();
-  params.set("pageSize", "500");
-  params.set("page", "1");
-  if (search.trim()) params.set("search", search.trim());
-  const result = await request(`/partners?${params.toString()}`, token);
-  const allRows = normalizeArray(result?.data ?? result);
+  const allRows = await fetchAllPartnersWithApi(token, { search, pageSize: 200 });
   const rows = allRows.filter((p) => {
     if (!p?.isSupplier) return false;
     if (selectedStoreId && p.ownerStoreId && String(p.ownerStoreId) !== selectedStoreId) return false;
@@ -237,6 +232,45 @@ function withDateRange(path, fromDate, toDate) {
   return `${path}${sep}fromDate=${encodeURIComponent(fromDate)}&toDate=${encodeURIComponent(toDate)}`;
 }
 
+async function fetchAllPartnersWithApi(token, options = {}) {
+  const pageSize = Number(options.pageSize || 200);
+  const search = String(options.search || "").trim();
+  const allRows = [];
+  const seenPartnerIds = new Set();
+  let total = Number.POSITIVE_INFINITY;
+  let page = 1;
+  let previousUniqueCount = -1;
+
+  while (allRows.length < total) {
+    const params = new URLSearchParams();
+    params.set("page", String(page));
+    params.set("pageSize", String(pageSize));
+    if (search) params.set("search", search);
+
+    const result = await request(`/partners?${params.toString()}`, token);
+    const rows = normalizeArray(result);
+    const nextTotal = Number(result?.total);
+    if (Number.isFinite(nextTotal) && nextTotal >= 0) {
+      total = nextTotal;
+    }
+
+    for (const row of rows) {
+      const partnerId = String(row?.id || "").trim();
+      if (!partnerId || seenPartnerIds.has(partnerId)) continue;
+      seenPartnerIds.add(partnerId);
+      allRows.push(row);
+    }
+
+    if (!rows.length) break;
+    if (allRows.length === previousUniqueCount) break;
+    previousUniqueCount = allRows.length;
+    if (page >= 1000) break;
+    page += 1;
+  }
+
+  return allRows;
+}
+
 function filterByStore(orders, partners, selectedStoreId) {
   if (!selectedStoreId) {
     return {
@@ -303,7 +337,7 @@ export async function getMobileData(token, selectedStoreId = "") {
     request("/stores", token),
     request("/categories", token),
     request("/products?pageSize=200", token),
-    request("/partners?pageSize=500", token),
+    fetchAllPartnersWithApi(token, { pageSize: 200 }),
     request(withStoreQuery("/dashboard/overview?overviewTracking=all&timePeriod=this-year", selectedStoreId), token),
     request(withDateRange("/orders", fromDate, toDate), token),
     request(withDateRange("/receipts", fromDate, toDate), token),

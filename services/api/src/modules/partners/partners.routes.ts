@@ -4,6 +4,7 @@ import { prisma } from "../../prisma.js";
 import { badRequest, created, ok } from "../../utils/http.js";
 import { requirePermission } from "../../middleware/authorize.js";
 import type { AuthRequest } from "../../middleware/auth.js";
+import { getVietnamMonthUtcRange, getVietnamPresetUtcRange, type VietnamPreset } from "../../utils/datetime-vn.js";
 
 const router = Router();
 const PAYMENT_META_MARKER = "##PURCHASE_PAYMENT_META##";
@@ -1129,37 +1130,10 @@ router.get("/:id/analytics", requirePermission("partners:read"), async (req: Aut
 
 // Helper: compute date range from preset (week / month / quarter / year / last-year)
 function getPresetDateRange(preset: string): { dateFrom: Date; dateTo: Date } {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = now.getMonth();
-  const d = now.getDate();
-  const today = new Date(y, m, d);
-
-  if (preset === "this-week") {
-    const dow = today.getDay(); // 0=Sun
-    const mondayOff = dow === 0 ? -6 : 1 - dow;
-    const monday = new Date(today);
-    monday.setDate(d + mondayOff);
-    const sunday = new Date(monday);
-    sunday.setDate(monday.getDate() + 6);
-    sunday.setHours(23, 59, 59, 999);
-    return { dateFrom: monday, dateTo: sunday };
-  }
-  if (preset === "this-month") {
-    return { dateFrom: new Date(y, m, 1), dateTo: new Date(y, m + 1, 0, 23, 59, 59, 999) };
-  }
-  if (preset === "this-quarter") {
-    const q = Math.floor(m / 3);
-    return { dateFrom: new Date(y, q * 3, 1), dateTo: new Date(y, q * 3 + 3, 0, 23, 59, 59, 999) };
-  }
-  if (preset === "this-year") {
-    return { dateFrom: new Date(y, 0, 1), dateTo: new Date(y, 11, 31, 23, 59, 59, 999) };
-  }
-  if (preset === "last-year") {
-    return { dateFrom: new Date(y - 1, 0, 1), dateTo: new Date(y - 1, 11, 31, 23, 59, 59, 999) };
-  }
-  // default: this-month
-  return { dateFrom: new Date(y, m, 1), dateTo: new Date(y, m + 1, 0, 23, 59, 59, 999) };
+  const normalized = (["this-week", "this-month", "this-quarter", "this-year", "last-year"] as const).includes(preset as VietnamPreset)
+    ? (preset as VietnamPreset)
+    : "this-month";
+  return getVietnamPresetUtcRange(normalized);
 }
 
 // GET /partners/:id/overview — combined aging + period KPIs + 12-month charts
@@ -1186,8 +1160,15 @@ router.get("/:id/overview", requirePermission("partners:read"), async (req: Auth
 
     // 12-month window for charts
     const now = new Date();
-    const chart12Start = new Date(now.getFullYear(), now.getMonth() - 11, 1);
-    const chart12End = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+    const vietnamNow = new Date(now.getTime() + 7 * 60 * 60 * 1000);
+    const currentVietnamYear = vietnamNow.getUTCFullYear();
+    const currentVietnamMonth = vietnamNow.getUTCMonth() + 1;
+    const chartStartMonth = currentVietnamMonth - 11;
+    const startYearOffset = Math.floor((chartStartMonth - 1) / 12);
+    const normalizedStartMonth = ((chartStartMonth - 1) % 12 + 12) % 12 + 1;
+    const chartStartYear = currentVietnamYear + startYearOffset;
+    const chart12Start = getVietnamMonthUtcRange(chartStartYear, normalizedStartMonth).dateFrom;
+    const chart12End = getVietnamMonthUtcRange(currentVietnamYear, currentVietnamMonth).dateTo;
 
     const [allOrdersForAging, periodOrders, chart12Orders, periodReceipts, chart12Receipts, periodGifts] =
       await Promise.all([

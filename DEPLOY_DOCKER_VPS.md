@@ -121,7 +121,8 @@ Repo co them workflow rieng `deploy-pos-vps.yml` de cap nhat nhanh app POS ma kh
   - `package.json`, `package-lock.json`
 - Co the chay tay tu tab Actions bang `workflow_dispatch`.
 - Lenh deploy tren VPS:
-  - `docker compose -f deploy/docker-compose.prod.yml up -d --build store-pos caddy`
+  - `docker compose -f deploy/docker-compose.prod.yml up -d --build --no-deps store-pos`
+  - `docker compose -f deploy/docker-compose.prod.yml up -d --no-deps caddy`
 
 Workflow nay su dung lai bo secrets SSH giong workflow chinh:
 
@@ -135,3 +136,4 @@ Workflow nay su dung lai bo secrets SSH giong workflow chinh:
 - Khong commit `deploy/.env.prod` len git.
 - Lan dau nen chay backup DB truoc khi `RUN_MIGRATIONS=true`.
 - Neu khong muon migrate tu dong khi start API: dat `RUN_MIGRATIONS=false`.
+- Upload anh duoc persist tren host qua mount `../services/api/uploads:/app/services/api/uploads`. Khong xoa thu muc `/opt/app-kd/services/api/uploads` khi cleanup/deploy.

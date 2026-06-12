@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "../../prisma.js";
 import { badRequest, created, ok } from "../../utils/http.js";
 import { requirePermission } from "../../middleware/authorize.js";
+import { getVietnamPresetUtcRange, type VietnamPreset } from "../../utils/datetime-vn.js";
 
 const router = Router();
 
@@ -18,47 +19,10 @@ const createBusinessAreaSchema = z.object({
 const updateBusinessAreaSchema = createBusinessAreaSchema.partial();
 
 function getDateRangeByPreset(timePreset: string) {
-  const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-
-  if (timePreset === "today") {
-    return { dateFrom: todayStart, dateTo: todayEnd };
-  }
-
-  if (timePreset === "this-month") {
-    return {
-      dateFrom: new Date(now.getFullYear(), now.getMonth(), 1),
-      dateTo: new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
-    };
-  }
-
-  if (timePreset === "this-quarter") {
-    const quarterStartMonth = Math.floor(now.getMonth() / 3) * 3;
-    return {
-      dateFrom: new Date(now.getFullYear(), quarterStartMonth, 1),
-      dateTo: new Date(now.getFullYear(), quarterStartMonth + 3, 0, 23, 59, 59, 999)
-    };
-  }
-
-  if (timePreset === "this-year") {
-    return {
-      dateFrom: new Date(now.getFullYear(), 0, 1),
-      dateTo: new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999)
-    };
-  }
-
-  if (timePreset === "last-year") {
-    return {
-      dateFrom: new Date(now.getFullYear() - 1, 0, 1),
-      dateTo: new Date(now.getFullYear() - 1, 11, 31, 23, 59, 59, 999)
-    };
-  }
-
-  return {
-    dateFrom: new Date(now.getFullYear(), now.getMonth(), 1),
-    dateTo: new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
-  };
+  const preset = (["today", "this-month", "this-quarter", "this-year", "last-year"] as const).includes(timePreset as VietnamPreset)
+    ? (timePreset as VietnamPreset)
+    : "this-month";
+  return getVietnamPresetUtcRange(preset);
 }
 
 // GET all business areas with hierarchy

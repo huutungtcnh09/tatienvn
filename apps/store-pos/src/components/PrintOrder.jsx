@@ -173,7 +173,7 @@ function renderPosReceiptHtml(order) {
   <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600;700;900&display=swap" rel="stylesheet" />
   <title>Phiếu tính tiền ${escapeHtml(orderNo)}</title>
   <style>
-    @page { size: 80mm auto; margin: 2mm 2mm 5mm; }
+    @page { size: 80mm auto; margin: 2mm 4mm 15mm; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: "Be Vietnam Pro", "Segoe UI", Arial, sans-serif;
@@ -206,12 +206,12 @@ function renderPosReceiptHtml(order) {
     .item-row { border-bottom: 1px dotted #ccc; }
     .item-row:last-child { border-bottom: none; }
     .item-cell { padding: 5px 0; }
-    .item-name { font-weight: 700; font-size: 12px; line-height: 1.4; }
+    .item-name { font-weight: 400; font-size: 12px; line-height: 1.4; text-transform: none; }
     .item-detail {
       display: flex; justify-content: space-between;
       align-items: center; margin-top: 2px;
     }
-    .item-code { font-size: 10px; color: #888; }
+    .item-code { font-size: calc(10px + 2pt); font-weight: 700; color: #111; }
     .item-calc { font-size: 11.5px; color: #333; text-align: right; }
     .item-calc strong { font-size: 12px; color: #111; }
     /* TOTALS */
@@ -314,6 +314,7 @@ function renderA5DeliveryNoteHtml(order) {
   );
   const totalAmountInWords = toVietnameseMoneyWords(totalAmount);
   const defaultCopyCount = 2;
+  const itemsGrandTotal = orderItems.reduce((sum, item) => sum + resolvePrintLineTotal(item), 0);
 
   const itemRows = orderItems.map((item, index) => {
     const code = item?.product?.sku || item?.sku || item?.productId || "-";
@@ -324,16 +325,23 @@ function renderA5DeliveryNoteHtml(order) {
     const lineTotal = resolvePrintLineTotal(item);
     return `
       <tr>
-        <td class="center cell-fit">${index + 1}</td>
+        <td class="center cell-stt">${index + 1}</td>
         <td class="cell-code">${escapeHtml(code)}</td>
         <td class="cell-name">${escapeHtml(name)}</td>
-        <td class="center cell-fit">${qty}</td>
-        <td class="center cell-fit">${escapeHtml(unit)}</td>
-        <td class="right cell-fit">${formatCurrency(unitPrice)}</td>
-        <td class="right cell-fit">${formatCurrency(lineTotal)}</td>
+        <td class="center cell-qty">${qty}</td>
+        <td class="center cell-unit">${escapeHtml(unit)}</td>
+        <td class="right cell-price">${formatCurrency(unitPrice)}</td>
+        <td class="right cell-amount">${formatCurrency(lineTotal)}</td>
       </tr>
     `;
   }).join("");
+
+  const itemGrandTotalRow = `
+      <tr>
+        <td colspan="6" class="right"><strong>Tổng cộng</strong></td>
+        <td class="right cell-amount"><strong>${formatCurrency(itemsGrandTotal)}</strong></td>
+      </tr>
+    `;
 
   const singleCopyContent = `
   <div class="copy-head">
@@ -351,16 +359,16 @@ function renderA5DeliveryNoteHtml(order) {
   <table>
     <thead>
       <tr>
-        <th class="cell-fit">STT</th>
+        <th class="cell-stt">STT</th>
         <th class="cell-code">Mã hàng</th>
-        <th class="cell-name">Tên hàng hóa, dịch vụ</th>
-        <th class="cell-fit">Số lượng</th>
-        <th class="cell-fit">ĐVT</th>
-        <th class="cell-fit">Đơn giá</th>
-        <th class="cell-fit">Thành tiền</th>
+        <th class="cell-name">Tên hàng hóa</th>
+        <th class="cell-qty">Số lượng</th>
+        <th class="cell-unit">ĐVT</th>
+        <th class="cell-price">Đơn giá</th>
+        <th class="cell-amount">Thành tiền</th>
       </tr>
     </thead>
-    <tbody>${itemRows}</tbody>
+    <tbody>${itemRows}${itemGrandTotalRow}</tbody>
   </table>
 
   <p class="note"><strong>Số tiền bằng chữ:</strong> ${escapeHtml(totalAmountInWords)}</p>
@@ -388,7 +396,7 @@ function renderA5DeliveryNoteHtml(order) {
   <meta charset="utf-8" />
   <title>Phiếu giao hàng ${escapeHtml(orderNo)}</title>
   <style>
-    @page { size: A5; margin: 5mm; }
+    @page { size: A5; margin: 5mm 7mm 5mm 5mm; }
     body { font-family: "Times New Roman", serif; color: #111; font-size: 14px; margin: 0; }
     .company { text-align: center; font-size: 24px; font-weight: 700; margin: 0 0 4px; }
     .title { text-align: center; font-size: 24px; font-weight: 700; margin: 0 0 8px; }
@@ -396,13 +404,17 @@ function renderA5DeliveryNoteHtml(order) {
     .meta { margin-bottom: 12px; }
     .meta-row { display: flex; margin-bottom: 6px; }
     .label { width: 140px; font-weight: 700; }
-    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-    th, td { border: 1px solid #111; padding: 6px; vertical-align: top; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; table-layout: fixed; }
+    th, td { border: 1px solid #111; padding: 5px; vertical-align: top; }
     th { text-align: center; }
     .center { text-align: center; }
-    .right { text-align: right; white-space: nowrap; }
-    .cell-fit { width: 1%; white-space: nowrap; }
-    .cell-code { width: 16%; }
+    .right { text-align: right; }
+    .cell-stt { width: 6%; }
+    .cell-qty { width: 10%; }
+    .cell-unit { width: 10%; }
+    .cell-price { width: 14%; }
+    .cell-amount { width: 16%; }
+    .cell-code { width: 14%; }
     .cell-name { width: auto; }
     .cell-code, .cell-name { word-break: break-word; }
     .note { margin-top: 10px; }

@@ -10,6 +10,8 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:14000:4000"
+    volumes:
+      - /opt/app-kd/services/api/uploads:/app/services/api/uploads
     networks:
       - app_net
     healthcheck:

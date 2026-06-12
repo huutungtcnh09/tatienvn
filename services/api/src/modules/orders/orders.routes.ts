@@ -4,6 +4,7 @@ import { prisma } from "../../prisma.js";
 import { badRequest, created, forbidden, ok } from "../../utils/http.js";
 import { requirePermission } from "../../middleware/authorize.js";
 import type { AuthRequest } from "../../middleware/auth.js";
+import { getTodayVietnamUtcRange, toUtcRangeForVietnamDate } from "../../utils/datetime-vn.js";
 
 const router = Router();
 
@@ -465,17 +466,34 @@ router.get("/", requirePermission("orders:read"), async (req: AuthRequest, res) 
   const fromDate = req.query.fromDate as string | undefined;
   const toDate = req.query.toDate as string | undefined;
 
-  // Default: load all dates if no date range provided (10 years back to today)
-  const tenYearsAgo = new Date();
-  tenYearsAgo.setFullYear(tenYearsAgo.getFullYear() - 10);
-  tenYearsAgo.setHours(0, 0, 0, 0);
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
-  const todayEnd = new Date();
-  todayEnd.setHours(23, 59, 59, 999);
+  const todayVietnamRange = getTodayVietnamUtcRange();
 
-  const dateFrom = fromDate ? new Date(fromDate + "T00:00:00") : tenYearsAgo;
-  const dateTo = toDate ? new Date(toDate + "T23:59:59") : todayEnd;
+  // Default: load all dates if no date range provided (10 years back to today in Vietnam timezone).
+  const tenYearsAgo = new Date(todayVietnamRange.start);
+  tenYearsAgo.setUTCFullYear(tenYearsAgo.getUTCFullYear() - 10);
+
+  let dateFrom = tenYearsAgo;
+  let dateTo = todayVietnamRange.end;
+
+  if (fromDate) {
+    const fromRange = toUtcRangeForVietnamDate(fromDate);
+    if (!fromRange) {
+      return badRequest(res, "Invalid fromDate. Expected yyyy-mm-dd");
+    }
+    dateFrom = fromRange.start;
+  }
+
+  if (toDate) {
+    const toRange = toUtcRangeForVietnamDate(toDate);
+    if (!toRange) {
+      return badRequest(res, "Invalid toDate. Expected yyyy-mm-dd");
+    }
+    dateTo = toRange.end;
+  }
+
+  if (dateFrom.getTime() > dateTo.getTime()) {
+    return badRequest(res, "fromDate must be before or equal to toDate");
+  }
 
   const data = await prisma.salesOrder.findMany({
     where: {

@@ -5,6 +5,7 @@ import { badRequest, created, forbidden, ok } from "../../utils/http.js";
 import { requirePermission } from "../../middleware/authorize.js";
 import type { AuthRequest } from "../../middleware/auth.js";
 import { resolveAssignedStoreIdsForUser } from "../../security/store-assignment.js";
+import { toUtcRangeForVietnamDate } from "../../utils/datetime-vn.js";
 
 const router = Router();
 
@@ -240,6 +241,31 @@ function toDateOnly(value?: string): Date | undefined {
   const parsed = new Date(Date.UTC(year, month - 1, day));
   if (Number.isNaN(parsed.getTime())) return undefined;
   return parsed;
+}
+
+function buildCreatedAtFilterFromVietnamDateQuery(fromDate?: string, toDate?: string) {
+  const createdAtFilter: { gte?: Date; lte?: Date } = {};
+  if (fromDate) {
+    const fromRange = toUtcRangeForVietnamDate(fromDate);
+    if (!fromRange) {
+      return { error: "Invalid fromDate. Expected yyyy-mm-dd" };
+    }
+    createdAtFilter.gte = fromRange.start;
+  }
+
+  if (toDate) {
+    const toRange = toUtcRangeForVietnamDate(toDate);
+    if (!toRange) {
+      return { error: "Invalid toDate. Expected yyyy-mm-dd" };
+    }
+    createdAtFilter.lte = toRange.end;
+  }
+
+  if (createdAtFilter.gte && createdAtFilter.lte && createdAtFilter.gte.getTime() > createdAtFilter.lte.getTime()) {
+    return { error: "fromDate must be before or equal to toDate" };
+  }
+
+  return { createdAtFilter };
 }
 
 function dateOnlyString(value: Date | null | undefined): string | undefined {
@@ -1024,23 +1050,19 @@ router.get("/", requirePermission("purchases:read"), async (req: StoreScopedRequ
       return forbidden(res, "No store assignment for this store");
     }
 
-    const createdAtFilter: { gte?: Date; lte?: Date } = {};
+    const createdAtFromQuery = buildCreatedAtFilterFromVietnamDateQuery(fromDate, toDate);
+    if (createdAtFromQuery.error) {
+      return badRequest(res, createdAtFromQuery.error);
+    }
+    const createdAtFilter = createdAtFromQuery.createdAtFilter || {};
     const documentDateFilter: { gte?: Date; lte?: Date } = {};
     if (fromDate) {
-      const parsedFrom = new Date(`${fromDate}T00:00:00`);
-      if (!Number.isNaN(parsedFrom.getTime())) {
-        createdAtFilter.gte = parsedFrom;
-      }
       const parsedFromDocument = toDateOnly(fromDate);
       if (parsedFromDocument) {
         documentDateFilter.gte = parsedFromDocument;
       }
     }
     if (toDate) {
-      const parsedTo = new Date(`${toDate}T23:59:59.999`);
-      if (!Number.isNaN(parsedTo.getTime())) {
-        createdAtFilter.lte = parsedTo;
-      }
       const parsedToDocument = toDateOnly(toDate);
       if (parsedToDocument) {
         documentDateFilter.lte = parsedToDocument;
@@ -1244,23 +1266,19 @@ router.get("/cash-flow", requirePermission("purchases:read"), async (req: StoreS
       return forbidden(res, "No store assignment for this store");
     }
 
-    const createdAtFilter: { gte?: Date; lte?: Date } = {};
+    const createdAtFromQuery = buildCreatedAtFilterFromVietnamDateQuery(fromDate, toDate);
+    if (createdAtFromQuery.error) {
+      return badRequest(res, createdAtFromQuery.error);
+    }
+    const createdAtFilter = createdAtFromQuery.createdAtFilter || {};
     const documentDateFilter: { gte?: Date; lte?: Date } = {};
     if (fromDate) {
-      const parsedFrom = new Date(`${fromDate}T00:00:00`);
-      if (!Number.isNaN(parsedFrom.getTime())) {
-        createdAtFilter.gte = parsedFrom;
-      }
       const parsedFromDocument = toDateOnly(fromDate);
       if (parsedFromDocument) {
         documentDateFilter.gte = parsedFromDocument;
       }
     }
     if (toDate) {
-      const parsedTo = new Date(`${toDate}T23:59:59.999`);
-      if (!Number.isNaN(parsedTo.getTime())) {
-        createdAtFilter.lte = parsedTo;
-      }
       const parsedToDocument = toDateOnly(toDate);
       if (parsedToDocument) {
         documentDateFilter.lte = parsedToDocument;
@@ -1392,23 +1410,19 @@ router.get("/reconciliation", requirePermission("purchases:read"), async (req: S
       return forbidden(res, "No store assignment for this store");
     }
 
-    const createdAtFilter: { gte?: Date; lte?: Date } = {};
+    const createdAtFromQuery = buildCreatedAtFilterFromVietnamDateQuery(fromDate, toDate);
+    if (createdAtFromQuery.error) {
+      return badRequest(res, createdAtFromQuery.error);
+    }
+    const createdAtFilter = createdAtFromQuery.createdAtFilter || {};
     const documentDateFilter: { gte?: Date; lte?: Date } = {};
     if (fromDate) {
-      const parsedFrom = new Date(`${fromDate}T00:00:00`);
-      if (!Number.isNaN(parsedFrom.getTime())) {
-        createdAtFilter.gte = parsedFrom;
-      }
       const parsedFromDocument = toDateOnly(fromDate);
       if (parsedFromDocument) {
         documentDateFilter.gte = parsedFromDocument;
       }
     }
     if (toDate) {
-      const parsedTo = new Date(`${toDate}T23:59:59.999`);
-      if (!Number.isNaN(parsedTo.getTime())) {
-        createdAtFilter.lte = parsedTo;
-      }
       const parsedToDocument = toDateOnly(toDate);
       if (parsedToDocument) {
         documentDateFilter.lte = parsedToDocument;

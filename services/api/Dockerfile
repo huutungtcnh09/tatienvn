@@ -16,9 +16,10 @@ COPY apps/head-office/package.json apps/head-office/package.json
 COPY apps/store-pos/package.json apps/store-pos/package.json
 COPY apps/corporate-web/package.json apps/corporate-web/package.json
 COPY apps/mobile/package.json apps/mobile/package.json
-RUN npm ci
+RUN npm ci --include=dev
 
 COPY services/api services/api
+RUN rm -rf services/api/uploads
 
 WORKDIR /app/services/api
 RUN npx prisma generate --config prisma.config.ts

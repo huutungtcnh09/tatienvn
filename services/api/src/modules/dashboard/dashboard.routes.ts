@@ -2,6 +2,15 @@ import { Router } from "express";
 import { prisma } from "../../prisma.js";
 import { ok, badRequest } from "../../utils/http.js";
 import { requirePermission } from "../../middleware/authorize.js";
+import {
+  getVietnamDateKey,
+  getVietnamMonthKey,
+  getVietnamQuarterKey,
+  getVietnamTimePeriodUtcRange,
+  getVietnamYearKey,
+  getVietnamYearUtcRange,
+  type VietnamTimePeriod
+} from "../../utils/datetime-vn.js";
 
 const router = Router();
 const recognizedStatuses = new Set(["DELIVERED", "COMPLETED", "RETURNED"]);
@@ -38,25 +47,35 @@ function isRefundPayoutNote(rawNote: string | null | undefined) {
 
 function toPeriodKey(date: Date, period: string) {
   if (period === "day") {
-    return date.toISOString().split("T")[0];
+    return getVietnamDateKey(date);
   }
 
   if (period === "week") {
-    const weekStart = new Date(date);
-    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
-    return weekStart.toISOString().split("T")[0];
+    const vietnamDate = new Date(date.getTime() + 7 * 60 * 60 * 1000);
+    const vnUtcMidnight = new Date(Date.UTC(
+      vietnamDate.getUTCFullYear(),
+      vietnamDate.getUTCMonth(),
+      vietnamDate.getUTCDate(),
+      -7,
+      0,
+      0,
+      0
+    ));
+    const weekday = vietnamDate.getUTCDay();
+    const mondayOffset = weekday === 0 ? -6 : 1 - weekday;
+    vnUtcMidnight.setUTCDate(vnUtcMidnight.getUTCDate() + mondayOffset);
+    return getVietnamDateKey(vnUtcMidnight);
   }
 
   if (period === "month") {
-    return date.toISOString().slice(0, 7);
+    return getVietnamMonthKey(date);
   }
 
   if (period === "quarter") {
-    const quarter = Math.floor(date.getMonth() / 3) + 1;
-    return `${date.getFullYear()}-Q${quarter}`;
+    return getVietnamQuarterKey(date);
   }
 
-  return String(date.getFullYear());
+  return getVietnamYearKey(date);
 }
 
 function toCashFlowBreakdown(cashIn: number, cashOutSupplier: number, cashOutRefund: number) {
@@ -107,23 +126,12 @@ router.get("/overview", requirePermission("dashboard:read"), async (req, res) =>
       : undefined;
 
     // Tính toán date range từ timePeriod
-    const now = new Date();
     let dateFromFilter: Date | undefined;
     let dateToFilter: Date | undefined;
-
-    if (timePeriod === "this-year") {
-      dateFromFilter = new Date(now.getFullYear(), 0, 1);
-      dateToFilter = new Date(now.getFullYear(), 11, 31, 23, 59, 59);
-    } else if (timePeriod === "last-year") {
-      dateFromFilter = new Date(now.getFullYear() - 1, 0, 1);
-      dateToFilter = new Date(now.getFullYear() - 1, 11, 31, 23, 59, 59);
-    } else if (timePeriod === "this-month") {
-      dateFromFilter = new Date(now.getFullYear(), now.getMonth(), 1);
-      dateToFilter = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
-    } else if (timePeriod === "this-quarter") {
-      const quarter = Math.floor(now.getMonth() / 3);
-      dateFromFilter = new Date(now.getFullYear(), quarter * 3, 1);
-      dateToFilter = new Date(now.getFullYear(), quarter * 3 + 3, 0, 23, 59, 59);
+    if ((["this-year", "last-year", "this-month", "this-quarter"] as const).includes(timePeriod as VietnamTimePeriod)) {
+      const range = getVietnamTimePeriodUtcRange(timePeriod as VietnamTimePeriod);
+      dateFromFilter = range.dateFrom;
+      dateToFilter = range.dateTo;
     }
 
     const orderWhere: any = {
@@ -688,9 +696,11 @@ router.get("/revenue-compare-monthly", requirePermission("dashboard:read"), asyn
     const now = new Date();
     const timePeriod = (req.query.timePeriod as string) || "this-year";
     const parsedAnchorYear = Number(req.query.anchorYear);
+    const vietnamNow = new Date(now.getTime() + 7 * 60 * 60 * 1000);
+    const vietnamYear = vietnamNow.getUTCFullYear();
     const anchorYear = Number.isFinite(parsedAnchorYear) && parsedAnchorYear > 2000
       ? parsedAnchorYear
-      : (timePeriod === "last-year" ? now.getFullYear() - 1 : now.getFullYear());
+      : (timePeriod === "last-year" ? vietnamYear - 1 : vietnamYear);
     const previousYear = anchorYear - 1;
 
     const productType = (req.query.productType as string) || "all"; // goods, service, all
@@ -702,8 +712,8 @@ router.get("/revenue-compare-monthly", requirePermission("dashboard:read"), asyn
       ? req.query.storeId.trim()
       : undefined;
 
-    const fromDate = new Date(previousYear, 0, 1);
-    const toDate = new Date(anchorYear, 11, 31, 23, 59, 59);
+    const fromDate = getVietnamYearUtcRange(previousYear).dateFrom;
+    const toDate = getVietnamYearUtcRange(anchorYear).dateTo;
 
     const [orders, allSalesReturns]: [Array<any>, Array<any>] = await Promise.all([
       prisma.salesOrder.findMany({
@@ -974,22 +984,12 @@ router.get("/staff-kpi", requirePermission("dashboard:read"), async (req, res) =
       ? req.query.positionId.trim()
       : undefined;
 
-    const now = new Date();
     let dateFromFilter: Date | undefined;
     let dateToFilter: Date | undefined;
-    if (timePeriod === "this-year") {
-      dateFromFilter = new Date(now.getFullYear(), 0, 1);
-      dateToFilter = new Date(now.getFullYear(), 11, 31, 23, 59, 59);
-    } else if (timePeriod === "last-year") {
-      dateFromFilter = new Date(now.getFullYear() - 1, 0, 1);
-      dateToFilter = new Date(now.getFullYear() - 1, 11, 31, 23, 59, 59);
-    } else if (timePeriod === "this-month") {
-      dateFromFilter = new Date(now.getFullYear(), now.getMonth(), 1);
-      dateToFilter = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
-    } else if (timePeriod === "this-quarter") {
-      const quarter = Math.floor(now.getMonth() / 3);
-      dateFromFilter = new Date(now.getFullYear(), quarter * 3, 1);
-      dateToFilter = new Date(now.getFullYear(), quarter * 3 + 3, 0, 23, 59, 59);
+    if ((["this-year", "last-year", "this-month", "this-quarter"] as const).includes(timePeriod as VietnamTimePeriod)) {
+      const range = getVietnamTimePeriodUtcRange(timePeriod as VietnamTimePeriod);
+      dateFromFilter = range.dateFrom;
+      dateToFilter = range.dateTo;
     }
 
     const targetProductType = productType === "goods" ? "GOODS" : productType === "service" ? "SERVICE" : null;
