@@ -173,7 +173,7 @@ function renderPosReceiptHtml(order) {
   <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600;700;900&display=swap" rel="stylesheet" />
   <title>Phiếu tính tiền ${escapeHtml(orderNo)}</title>
   <style>
-    @page { size: 80mm auto; margin: 2mm 4mm 15mm; }
+    @page { size: 80mm auto; margin: 2mm 4mm 2mm; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: "Be Vietnam Pro", "Segoe UI", Arial, sans-serif;
