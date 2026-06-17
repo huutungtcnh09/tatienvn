@@ -34,8 +34,7 @@ async function main() {
     update: {},
     create: {
       code: "STORE-HCM-01",
-      name: "Cua hang HCM 01",
-      managerId: storeManager.id
+      name: "Cua hang HCM 01"
     }
   });
 
@@ -45,8 +44,7 @@ async function main() {
     create: {
       code: "WH-01",
       name: "Kho trung tam",
-      isWarehouse: true,
-      managerId: headManager.id
+      isWarehouse: true
     }
   });
 

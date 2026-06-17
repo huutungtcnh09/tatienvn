@@ -22,6 +22,10 @@ body,
   min-height: 100%;
 }
 
+html {
+  font-size: 20px;
+}
+
 body {
   margin: 0;
   font-family: var(--font-sans);
@@ -485,12 +489,27 @@ body {
 
 .list-card li strong {
   display: block;
-  font-size: 0.86rem;
+  font-size: 0.96rem;
+  font-weight: 600;
+}
+
+.product-name-line {
+  font-size: 0.9rem;
+  font-weight: 400;
+  text-transform: lowercase;
+}
+
+.product-sku-line {
+  margin: 0;
+  font-size: 1.08rem;
+  font-weight: 800;
+  color: #1f3f6f;
+  letter-spacing: 0.01em;
 }
 
 .list-card li p {
-  margin: 2px 0 0;
-  font-size: 0.75rem;
+  margin: 4px 0 0;
+  font-size: 0.82rem;
   color: var(--muted);
 }
 
@@ -502,25 +521,32 @@ body {
 }
 
 .list-card li.product-row {
-  min-height: auto;
+  min-height: 140px;
   align-items: stretch;
-  padding: 10px 10px;
+  padding: 12px 12px;
+  cursor: pointer;
+}
+
+.list-card li.product-row:focus-visible {
+  outline: 2px solid #7aa2ff;
+  outline-offset: 2px;
 }
 
 .product-row-main {
   min-width: 0;
   display: grid;
-  grid-template-columns: 70px minmax(0, 1fr);
-  gap: 8px;
+  grid-template-columns: 90px minmax(0, 1fr);
+  gap: 12px;
   align-items: start;
 }
 
 .product-thumb-wrap {
-  width: 70px;
-  height: 70px;
-  border-radius: 9px;
+  width: 90px;
+  height: 90px;
+  border-radius: 10px;
   overflow: hidden;
   background: #f1f5f9;
+  flex-shrink: 0;
 }
 
 .product-thumb {
@@ -541,10 +567,10 @@ body {
 }
 
 .product-inline-tags {
-  margin-top: 5px;
+  margin-top: 6px;
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 5px;
 }
 
 .product-chip {
@@ -553,16 +579,9 @@ body {
   border-radius: 999px;
   background: #eef2ff;
   color: #3b4a6b;
-  font-size: 0.67rem;
+  font-size: 0.76rem;
   font-weight: 600;
-  padding: 2px 7px;
-}
-
-.product-row-actions {
-  flex-shrink: 0;
-  display: grid;
-  gap: 6px;
-  justify-items: end;
+  padding: 3px 8px;
 }
 
 .customer-row-actions {
@@ -570,18 +589,6 @@ body {
   display: grid;
   gap: 6px;
   justify-items: end;
-}
-
-.view-btn {
-  border: 0;
-  border-radius: 8px;
-  min-height: 30px;
-  min-width: 54px;
-  padding: 0 9px;
-  font-size: 0.78rem;
-  font-weight: 700;
-  color: #1f3f6f;
-  background: #dbeafe;
 }
 
 .mobile-product-detail-panel {
@@ -1275,3 +1282,4 @@ body {
     padding: 10px 0;
   }
 }
+

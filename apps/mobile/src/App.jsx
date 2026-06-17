@@ -1322,7 +1322,19 @@ function ProductsPanel({ payload, query, loading, onRefresh, onSaveSupplierQuote
           </header>
           <ul>
             {rows.map((item) => (
-              <li key={item.id} className="product-row">
+              <li
+                key={item.id}
+                className="product-row"
+                role="button"
+                tabIndex={0}
+                onClick={() => openProductDetail(item)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    openProductDetail(item);
+                  }
+                }}
+              >
                 <div className="product-row-main">
                   <div className="product-thumb-wrap">
                     {item.imageUrl ? (
@@ -1332,29 +1344,16 @@ function ProductsPanel({ payload, query, loading, onRefresh, onSaveSupplierQuote
                     )}
                   </div>
                   <div>
-                    <strong>{item.name || "Không tên"}</strong>
-                    <p>{item.sku || "-"} · {item.category?.name || "Chưa phân loại"}</p>
+                    <p className="product-sku-line">{item.sku || "-"}</p>
+                    <strong className="product-name-line">{item.name || "Không tên"}</strong>
+                    <p>{item.category?.name || "Chưa phân loại"}</p>
                     <div className="product-inline-tags">
                       <span className="product-chip">Tồn: {number.format(inventoryMap.get(item.id) || 0)}</span>
                       <span className="product-chip">Giá vốn: {money.format(Number(item.costPrice || 0))}</span>
                     </div>
                   </div>
                 </div>
-                <div className="product-row-actions">
-                  <span>{money.format(Number(item.defaultPrice || 0))}</span>
-                  <button
-                    type="button"
-                    className="view-btn"
-                    onMouseDown={(event) => event.stopPropagation()}
-                    onTouchStart={(event) => event.stopPropagation()}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      openProductDetail(item);
-                    }}
-                  >
-                    Xem
-                  </button>
-                </div>
+                <span>{money.format(Number(item.defaultPrice || 0))}</span>
               </li>
             ))}
             {!rows.length ? <li className="empty-row">Không có dữ liệu phù hợp.</li> : null}
@@ -3086,8 +3085,11 @@ function OverviewPanel({ payload, loading, token, onRefresh }) {
       trendMap.set(dateKey, bucket);
     }
 
-    const totalDebt = (payload.customers || [])
-      .reduce((sum, customer) => sum + Math.max(Number(customer?.netBalance || 0), 0), 0);
+    const overviewDebt = Number(payload?.overview?.debt);
+    const totalDebt = Number.isFinite(overviewDebt)
+      ? overviewDebt
+      : (payload.customers || [])
+        .reduce((sum, customer) => sum + Math.max(Number(customer?.netBalance || 0), 0), 0);
 
     const inventoryValue = (payload.inventory || []).reduce((sum, row) => {
       const product = productMap.get(row?.productId);
