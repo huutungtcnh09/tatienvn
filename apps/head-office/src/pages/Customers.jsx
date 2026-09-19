@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import * as api from "../api";
 import "../styles/pages.css";
 import { formatMoneyInput as formatCurrencyInput, formatCurrency } from "../utils/currency";
@@ -83,8 +83,8 @@ function flattenBusinessAreas(nodes = [], prefix = "") {
 }
 
 const CUSTOMER_PRICE_TIER_LABELS = {
-  LEVEL_2: "Cấp 2",
-  LEVEL_2_SPECIAL: "Cấp 2 đặc biệt"
+  LEVEL_2: "C?p 2",
+  LEVEL_2_SPECIAL: "C?p 2 d?c bi?t"
 };
 
 export default function Customers({ token }) {
@@ -174,7 +174,7 @@ export default function Customers({ token }) {
       setPartners(rows.filter((p) => p.isCustomer));
       setTotal(Array.isArray(partnersData) ? rows.length : Number(partnersData?.total || 0));
     } catch (error) {
-      alert(`Lỗi: ${error.message}`);
+      alert(`L?i: ${error.message}`);
     } finally {
       setLoading(false);
     }
@@ -200,7 +200,7 @@ export default function Customers({ token }) {
           const res = await api.getPartnerAging(token, partner.id);
           setDetailAging(sanitizeAgingPayload(res.data || res));
         } catch (e) {
-          console.error(`Lỗi tuổi nợ: ${e.message}`);
+          console.error(`L?i tu?i n?: ${e.message}`);
         }
       }
       // Load price list when info tab is clicked
@@ -210,7 +210,7 @@ export default function Customers({ token }) {
           const data = res.data || res;
           setDetailPriceList(data?.priceList || []);
         } catch (e) {
-          console.error(`Lỗi lịch sử giá: ${e.message}`);
+          console.error(`L?i l?ch s? gi�: ${e.message}`);
         }
       }
     }
@@ -220,7 +220,7 @@ export default function Customers({ token }) {
         const res = await api.getPartnerTransactions(token, partner.id);
         setDetailTransactions(res.data || res || []);
       } catch (e) {
-        alert(`Lỗi nhật ký: ${e.message}`);
+        alert(`L?i nh?t k�: ${e.message}`);
       } finally {
         setDetailLoading(false);
       }
@@ -231,10 +231,10 @@ export default function Customers({ token }) {
         const res = await api.getPartnerAnalytics(token, partner.id, analyticsPeriod);
         const data = res.data || res;
         setDetailAnalytics(data);
-        // Trích xuất bảng giá từ analytics
+        // Tr�ch xu?t b?ng gi� t? analytics
         if (data?.priceList) setDetailPriceList(data.priceList);
       } catch (e) {
-        alert(`Lỗi phân tích: ${e.message}`);
+        alert(`L?i ph�n t�ch: ${e.message}`);
       } finally {
         setDetailLoading(false);
       }
@@ -300,7 +300,7 @@ export default function Customers({ token }) {
           businessAreaId: formData.businessAreaId || null
         };
         await api.updatePartner(token, editingPartner.id, updatePayload);
-        alert("Cập nhật thành công");
+        alert("C?p nh?t th�nh c�ng");
       } else {
         const payload = {
           ...formData,
@@ -314,12 +314,12 @@ export default function Customers({ token }) {
           openingBalance: Number(formData.openingBalance || 0)
         };
         await api.createPartner(token, payload);
-        alert("Tạo khách hàng thành công");
+        alert("T?o kh�ch h�ng th�nh c�ng");
       }
       handleCloseDialog();
       loadData();
     } catch (error) {
-      alert(`Lỗi: ${error.message}`);
+      alert(`L?i: ${error.message}`);
     }
   };
 
@@ -351,38 +351,35 @@ export default function Customers({ token }) {
   const downloadCustomersCsv = () => {
     const escapeCsv = (value) => {
       const raw = String(value ?? "");
-      if (/[",\n]/.test(raw)) {
-        return `"${raw.replace(/"/g, '""')}"`;
-      }
+      if (/[",\n]/.test(raw)) return `"${raw.replace(/"/g, '""')}"`;
       return raw;
     };
-
+    const normalizePhoneForExport = (value) => {
+      const digits = String(value ?? "").replace(/\D/g, "");
+      if (!digits) return "";
+      if (digits.startsWith("0")) return digits;
+      if (digits.startsWith("84")) return `0${digits.slice(2)}`;
+      return `0${digits}`;
+    };
+    const toExcelTextCell = (value) => {
+      const text = String(value ?? "").replace(/"/g, '""');
+      return text ? `="${text}"` : "";
+    };
     const rows = [...filteredPartners]
       .sort((a, b) => Number(b.netBalance || 0) - Number(a.netBalance || 0))
-      .map((partner) => {
-        const phoneText = String(partner.phone || "").replace(/"/g, '""');
-        const phone2Text = String(partner.phone2 || "").replace(/"/g, '""');
-        const phone3Text = String(partner.phone3 || "").replace(/"/g, '""');
-        const currentDebt = Number(partner.netBalance || 0);
-        const revenue = Number(partner.totalRevenue ?? partner.revenue ?? 0);
-        return [
-          partner.name || "",
-          `="${phoneText}"`,
-          `="${phone2Text}"`,
-          `="${phone3Text}"`,
-          partner.address || "",
-          partner.businessArea?.name || "",
-          currentDebt,
-          revenue
-        ];
-      });
-
-    const headers = ["Tên khách hàng", "Điện thoại 1", "Điện thoại 2", "Điện thoại 3", "Địa chỉ", "Khu vực kinh doanh", "Nợ hiện tại", "Doanh thu"];
-    const csv = "\ufeff" + [
-      headers.map(escapeCsv).join(","),
-      ...rows.map((row) => row.map(escapeCsv).join(","))
-    ].join("\n");
-
+      .map((partner) => [
+        partner.name || "",
+        partner.ledgerCode || "",
+        toExcelTextCell(normalizePhoneForExport(partner.phone)),
+        toExcelTextCell(normalizePhoneForExport(partner.phone2)),
+        toExcelTextCell(normalizePhoneForExport(partner.phone3)),
+        partner.address || "",
+        partner.businessArea?.name || "",
+        Number(partner.netBalance || 0),
+        Number(partner.totalRevenue ?? partner.revenue ?? 0)
+      ]);
+    const headers = ["T�n kh�ch h�ng", "M� s? g?c", "�i?n tho?i 1", "�i?n tho?i 2", "�i?n tho?i 3", "�?a ch?", "Khu v?c kinh doanh", "N? hi?n t?i", "Doanh thu"];
+    const csv = "\ufeff" + [headers.map(escapeCsv).join(","), ...rows.map((row) => row.map(escapeCsv).join(","))].join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -398,17 +395,17 @@ export default function Customers({ token }) {
     <div className="page-container">
       <div className="page-header">
         <div>
-          <h1>Quản lý khách hàng</h1>
+          <h1>Qu?n l� kh�ch h�ng</h1>
           <p className="stat-text">
-            {totalCustomers} khách hàng &nbsp;&nbsp; {hasDebtCount} có công nợ &nbsp;&nbsp; Tổng nợ: {formatCurrency(totalDebt)} &nbsp;&nbsp; Dư trả trước: {formatCurrency(totalAdvance)}
+            {totalCustomers} kh�ch h�ng &nbsp;&nbsp; {hasDebtCount} c� c�ng n? &nbsp;&nbsp; T?ng n?: {formatCurrency(totalDebt)} &nbsp;&nbsp; Du tr? tru?c: {formatCurrency(totalAdvance)}
           </p>
         </div>
         <div className="page-header-actions">
           <button className="btn-cancel" type="button" onClick={downloadCustomersCsv}>
-            Xuất file khách hàng
+            Xu?t file kh�ch h�ng
           </button>
           <button className="btn-primary" type="button" onClick={() => handleOpenDialog()}>
-            + Thêm khách hàng
+            + Th�m kh�ch h�ng
           </button>
         </div>
       </div>
@@ -416,7 +413,7 @@ export default function Customers({ token }) {
       <div className="search-section">
         <input
           type="text"
-          placeholder="Tìm mã, tên hoặc SDT..."
+          placeholder="T�m m�, t�n ho?c SDT..."
           value={searchTerm}
           onChange={(e) => {
             setSearchTerm(e.target.value);
@@ -429,7 +426,7 @@ export default function Customers({ token }) {
           value={filterPosition}
           onChange={(e) => setFilterPosition(e.target.value)}
         >
-          <option value="">Tất cả vị trí phụ trách</option>
+          <option value="">T?t c? v? tr� ph? tr�ch</option>
           {positions.map((pos) => (
             <option key={pos.id} value={pos.id}>{pos.code} - {pos.name}</option>
           ))}
@@ -439,7 +436,7 @@ export default function Customers({ token }) {
           value={filterStore}
           onChange={(e) => setFilterStore(e.target.value)}
         >
-          <option value="">Tất cả cửa hàng sở hữu</option>
+          <option value="">T?t c? c?a h�ng s? h?u</option>
           {stores.map((store) => (
             <option key={store.id} value={store.id}>{store.code} - {store.name}</option>
           ))}
@@ -449,16 +446,16 @@ export default function Customers({ token }) {
           value={filterTier}
           onChange={(e) => setFilterTier(e.target.value)}
         >
-          <option value="">Tất cả loại khách</option>
-          <option value="LEVEL_2">Cấp 2</option>
-          <option value="LEVEL_2_SPECIAL">Cấp 2 đặc biệt</option>
+          <option value="">T?t c? lo?i kh�ch</option>
+          <option value="LEVEL_2">C?p 2</option>
+          <option value="LEVEL_2_SPECIAL">C?p 2 d?c bi?t</option>
         </select>
         <select
           className="filter-select"
           value={filterBusinessArea}
           onChange={(e) => setFilterBusinessArea(e.target.value)}
         >
-          <option value="">Tất cả khu vực kinh doanh</option>
+          <option value="">T?t c? khu v?c kinh doanh</option>
           {businessAreas.map((area) => (
             <option key={area.id} value={area.id}>{area.label}</option>
           ))}
@@ -469,36 +466,36 @@ export default function Customers({ token }) {
             checked={filterByDebt}
             onChange={(e) => setFilterByDebt(e.target.checked)}
           />
-          Chỉ hiển thị có nợ
+          Ch? hi?n th? c� n?
         </label>
-        <button className="btn-cancel" type="button" onClick={resetFilters}>Xóa lọc</button>
+        <button className="btn-cancel" type="button" onClick={resetFilters}>X�a l?c</button>
       </div>
 
       {loading ? (
-        <p>Đang tải...</p>
+        <p>�ang t?i...</p>
       ) : (
         <div>
           <div className="table-container">
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Mã</th>
-                  <th>Tên khách hàng</th>
-                  <th>Điện thoại 1</th>
-                  <th>Điện thoại 2</th>
-                  <th>Điện thoại 3</th>
-                  <th>Loại KH</th>
-                  <th>Khu vực KD</th>
-                  <th>Cửa hàng sở hữu</th>
-                  <th className="text-right">Công nợ</th>
-                  <th>Vị trí phụ trách</th>
-                  <th>Thao tác</th>
+                  <th>M�</th>
+                  <th>T�n kh�ch h�ng</th>
+                  <th>�i?n tho?i 1</th>
+                  <th>�i?n tho?i 2</th>
+                  <th>�i?n tho?i 3</th>
+                  <th>Lo?i KH</th>
+                  <th>Khu v?c KD</th>
+                  <th>C?a h�ng s? h?u</th>
+                  <th className="text-right">C�ng n?</th>
+                  <th>V? tr� ph? tr�ch</th>
+                  <th>Thao t�c</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredPartners.length === 0 ? (
                   <tr>
-                    <td colSpan="11" className="text-center">Không có dữ liệu</td>
+                    <td colSpan="11" className="text-center">Kh�ng c� d? li?u</td>
                   </tr>
                 ) : (
                   filteredPartners.map(partner => (
@@ -520,13 +517,13 @@ export default function Customers({ token }) {
                           className="btn-small"
                           onClick={() => openDetail(partner)}
                         >
-                          Chi tiết
+                          Chi ti?t
                         </button>
                         <button
                           className="btn-small btn-blue"
                           onClick={() => handleOpenDialog(partner)}
                         >
-                          Sửa
+                          S?a
                         </button>
                       </td>
                     </tr>
@@ -536,9 +533,9 @@ export default function Customers({ token }) {
             </table>
           </div>
           <div style={{ marginTop: 12, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-            <div>Trang {page} / {totalPages} - Tổng {total} khách hàng</div>
+            <div>Trang {page} / {totalPages} - T?ng {total} kh�ch h�ng</div>
             <div style={{ display: "flex", gap: 8 }}>
-              <button className="btn-cancel" type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>Trang trước</button>
+              <button className="btn-cancel" type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>Trang tru?c</button>
               <button className="btn-cancel" type="button" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>Trang sau</button>
             </div>
           </div>
@@ -551,14 +548,14 @@ export default function Customers({ token }) {
           <div className="dialog-panel dialog-panel--lg" onClick={(e) => e.stopPropagation()}>
             <div className="dialog-header">
               <h2>{detailPartner.name}</h2>
-              <button className="close-btn" type="button" onClick={() => setShowDetail(false)} aria-label="Đóng">✕</button>
+              <button className="close-btn" type="button" onClick={() => setShowDetail(false)} aria-label="��ng">?</button>
             </div>
 
             <div className="dialog-tabs">
               {[
-                { key: "info", label: "Tổng quan" },
-                { key: "transactions", label: "Nhật ký giao dịch" },
-                { key: "analytics", label: "Phân tích" }
+                { key: "info", label: "T?ng quan" },
+                { key: "transactions", label: "Nh?t k� giao d?ch" },
+                { key: "analytics", label: "Ph�n t�ch" }
               ].map(tab => (
                 <button
                   key={tab.key}
@@ -575,21 +572,21 @@ export default function Customers({ token }) {
               {detailTab === "info" && (
                 <div>
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, textAlign: "center" }}>
-                    <div><strong>Mã:</strong> {detailPartner.code}</div>
-                    <div><strong>Tên:</strong> {detailPartner.name}</div>
-                    <div><strong>Điện thoại 1:</strong> {detailPartner.phone || "-"}</div>
-                    <div><strong>Điện thoại 2:</strong> {detailPartner.phone2 || "-"}</div>
-                    <div><strong>Điện thoại 3:</strong> {detailPartner.phone3 || "-"}</div>
+                    <div><strong>M�:</strong> {detailPartner.code}</div>
+                    <div><strong>T�n:</strong> {detailPartner.name}</div>
+                    <div><strong>�i?n tho?i 1:</strong> {detailPartner.phone || "-"}</div>
+                    <div><strong>�i?n tho?i 2:</strong> {detailPartner.phone2 || "-"}</div>
+                    <div><strong>�i?n tho?i 3:</strong> {detailPartner.phone3 || "-"}</div>
                     <div><strong>Email:</strong> {detailPartner.email || "-"}</div>
-                    <div><strong>Địa chỉ:</strong> {detailPartner.address || "-"}</div>
-                    <div><strong>Loại khách hàng:</strong> {CUSTOMER_PRICE_TIER_LABELS[detailPartner.customerPriceTier] || "-"}</div>
-                    <div><strong>Khu vực kinh doanh:</strong> {detailPartner.businessArea?.name || "-"}</div>
-                    <div><strong>Cửa hàng sở hữu:</strong> {detailPartner.ownerStore?.name || "-"}</div>
-                    <div><strong>Vị trí phụ trách:</strong> {detailPartner.accountOwnerPosition?.name || detailPartner.accountOwnerPosition?.code || "-"}</div>
-                    <div><strong>Nhân sự hiện tại:</strong> Theo bổ nhiệm của vị trí phụ trách</div>
-                    <div><strong>Số dư đầu kỳ:</strong> {formatCurrency(detailPartner.openingBalance)}</div>
+                    <div><strong>�?a ch?:</strong> {detailPartner.address || "-"}</div>
+                    <div><strong>Lo?i kh�ch h�ng:</strong> {CUSTOMER_PRICE_TIER_LABELS[detailPartner.customerPriceTier] || "-"}</div>
+                    <div><strong>Khu v?c kinh doanh:</strong> {detailPartner.businessArea?.name || "-"}</div>
+                    <div><strong>C?a h�ng s? h?u:</strong> {detailPartner.ownerStore?.name || "-"}</div>
+                    <div><strong>V? tr� ph? tr�ch:</strong> {detailPartner.accountOwnerPosition?.name || detailPartner.accountOwnerPosition?.code || "-"}</div>
+                    <div><strong>Nh�n s? hi?n t?i:</strong> Theo b? nhi?m c?a v? tr� ph? tr�ch</div>
+                    <div><strong>S? du d?u k?:</strong> {formatCurrency(detailPartner.openingBalance)}</div>
                     <div>
-                      <strong>Số dư ròng: </strong>
+                      <strong>S? du r�ng: </strong>
                       <span style={{ color: Number(detailPartner.netBalance) > 0 ? "#c92a2a" : "#2b8a3e", fontWeight: 700 }}>
                         {formatCurrency(detailPartner.netBalance)}
                       </span>
@@ -602,17 +599,17 @@ export default function Customers({ token }) {
                     </div>
                   </div>
 
-                  {/* Tuổi nợ section */}
+                  {/* Tu?i n? section */}
                   <div style={{ marginTop: 24, paddingTop: 16, borderTop: "1px solid #dee2e6" }}>
-                    <h4 style={{ marginBottom: 12 }}>Tuổi nợ</h4>
+                    <h4 style={{ marginBottom: 12 }}>Tu?i n?</h4>
                     {!detailAging ? (
                       <button className="btn-primary" onClick={() => loadDetailTab("info", detailPartner)}>
-                        Tải dữ liệu tuổi nợ
+                        T?i d? li?u tu?i n?
                       </button>
                     ) : (
                       <>
                         <div style={{ marginBottom: 16 }}>
-                          <strong>Tổng công nợ tồn: </strong>
+                          <strong>T?ng c�ng n? t?n: </strong>
                           <span style={{ color: "#c92a2a", fontWeight: 700 }}>{formatCurrency(detailAging.debt)}</span>
                         </div>
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
@@ -632,17 +629,17 @@ export default function Customers({ token }) {
                         </div>
                         {detailAging.outstandingDetails?.length > 0 && (
                           <>
-                            <h5 style={{ marginBottom: 8 }}>Chi tiết công nợ tồn</h5>
+                            <h5 style={{ marginBottom: 8 }}>Chi ti?t c�ng n? t?n</h5>
                             <div className="table-container" style={{ margin: 0 }}>
                               <table className="data-table">
                                 <thead>
                                   <tr>
-                                    <th>Ngày phát sinh</th>
-                                    <th>Loại</th>
-                                    <th>Số CT</th>
-                                    <th className="text-right">Gốc</th>
-                                    <th className="text-right">Còn lại</th>
-                                    <th className="text-right">Số ngày</th>
+                                    <th>Ng�y ph�t sinh</th>
+                                    <th>Lo?i</th>
+                                    <th>S? CT</th>
+                                    <th className="text-right">G?c</th>
+                                    <th className="text-right">C�n l?i</th>
+                                    <th className="text-right">S? ng�y</th>
                                   </tr>
                                 </thead>
                                 <tbody>
@@ -665,19 +662,19 @@ export default function Customers({ token }) {
                     )}
                   </div>
 
-                  {/* Lịch sử giá section */}
+                  {/* L?ch s? gi� section */}
                   <div style={{ marginTop: 24, paddingTop: 16, borderTop: "1px solid #dee2e6" }}>
-                    <h4 style={{ marginBottom: 12 }}>Lịch sử giá</h4>
+                    <h4 style={{ marginBottom: 12 }}>L?ch s? gi�</h4>
                     {!detailPriceList ? (
                       <button className="btn-primary" onClick={() => loadDetailTab("info", detailPartner)}>
-                        Tải lịch sử giá
+                        T?i l?ch s? gi�
                       </button>
                     ) : detailPriceList.length === 0 ? (
-                      <p style={{ color: "#6b7280" }}>Khách hàng chưa có bảng giá riêng.</p>
+                      <p style={{ color: "#6b7280" }}>Kh�ch h�ng chua c� b?ng gi� ri�ng.</p>
                     ) : (
                       <div>
                         <p style={{ marginBottom: 12, color: "#6b7280", fontSize: "0.9rem" }}>
-                          {detailPriceList.length} sản phẩm có giá riêng
+                          {detailPriceList.length} s?n ph?m c� gi� ri�ng
                         </p>
                         {detailPriceList.map((pl) => (
                           <div key={pl.productId} style={{ marginBottom: 12, paddingBottom: 12, borderBottom: "1px solid #f0f0f0" }}>
@@ -688,7 +685,7 @@ export default function Customers({ token }) {
                                 <strong>{pl.productName}</strong>
                               </div>
                               <div style={{ textAlign: "right" }}>
-                                <span style={{ color: "#6b7280", fontSize: "0.85rem" }}>Mặc định: {formatCurrency(pl.defaultPrice)}</span>
+                                <span style={{ color: "#6b7280", fontSize: "0.85rem" }}>M?c d?nh: {formatCurrency(pl.defaultPrice)}</span>
                                 {" - "}
                                 <strong style={{ color: "#1971c2" }}>{formatCurrency(pl.customPrice)}</strong>
                               </div>
@@ -697,9 +694,9 @@ export default function Customers({ token }) {
                               <table className="data-table" style={{ margin: 0, fontSize: "0.85rem" }}>
                                 <thead>
                                   <tr>
-                                    <th>Thời gian thay đổi</th>
-                                    <th className="text-right">Giá cũ</th>
-                                    <th className="text-right">Giá mới</th>
+                                    <th>Th?i gian thay d?i</th>
+                                    <th className="text-right">Gi� cu</th>
+                                    <th className="text-right">Gi� m?i</th>
                                   </tr>
                                 </thead>
                                 <tbody>
@@ -714,7 +711,7 @@ export default function Customers({ token }) {
                               </table>
                             )}
                             {(!pl.history || pl.history.length === 0) && (
-                              <p style={{ color: "#6b7280", margin: 0, fontSize: "0.85rem" }}>Chưa có lịch sử thay đổi.</p>
+                              <p style={{ color: "#6b7280", margin: 0, fontSize: "0.85rem" }}>Chua c� l?ch s? thay d?i.</p>
                             )}
                           </div>
                         ))}
@@ -724,29 +721,29 @@ export default function Customers({ token }) {
 
                   <div style={{ marginTop: 20, display: "flex", gap: 8 }}>
                     <button className="btn-primary" onClick={() => handleOpenDialog(detailPartner)}>
-                      Chỉnh Sửa
+                      Ch?nh S?a
                     </button>
                   </div>
                 </div>
               )}
 
               {detailTab === "transactions" && (
-                detailLoading ? <p>Đang tải nhật ký...</p> :
-                !detailTransactions ? <p>Nhấn tab để tải dữ liệu.</p> : (
+                detailLoading ? <p>�ang t?i nh?t k�...</p> :
+                !detailTransactions ? <p>Nh?n tab d? t?i d? li?u.</p> : (
                   <div className="table-container" style={{ margin: 0 }}>
                     <table className="data-table">
                       <thead>
                         <tr>
-                          <th>Thời gian</th>
-                          <th>Loại giao dịch</th>
-                          <th>Số chứng từ</th>
-                          <th className="text-right">Số tiền</th>
-                          <th>Ghi chú</th>
+                          <th>Th?i gian</th>
+                          <th>Lo?i giao d?ch</th>
+                          <th>S? ch?ng t?</th>
+                          <th className="text-right">S? ti?n</th>
+                          <th>Ghi ch�</th>
                         </tr>
                       </thead>
                       <tbody>
                         {detailTransactions.length === 0 ? (
-                          <tr><td colSpan="5" className="text-center">Chưa có giao dịch</td></tr>
+                          <tr><td colSpan="5" className="text-center">Chua c� giao d?ch</td></tr>
                         ) : detailTransactions.map(tx => (
                           <tr key={tx.id}>
                             <td style={{ whiteSpace: "nowrap" }}>{fmtDate(tx.createdAt)}</td>
@@ -763,7 +760,7 @@ export default function Customers({ token }) {
               )}
 
               {detailTab === "analytics" && (
-                detailLoading ? <p>Đang tải phân tích...</p> :
+                detailLoading ? <p>�ang t?i ph�n t�ch...</p> :
                 !detailAnalytics ? (
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
@@ -772,12 +769,12 @@ export default function Customers({ token }) {
                         value={analyticsPeriod}
                         onChange={(e) => { setAnalyticsPeriod(e.target.value); setDetailAnalytics(null); }}
                       >
-                        <option value="month">Theo tháng</option>
-                        <option value="quarter">Theo quý</option>
-                        <option value="year">Theo năm</option>
+                        <option value="month">Theo th�ng</option>
+                        <option value="quarter">Theo qu�</option>
+                        <option value="year">Theo nam</option>
                       </select>
                       <button className="btn-primary" onClick={() => loadDetailTab("analytics", detailPartner)}>
-                        Tải phân tích
+                        T?i ph�n t�ch
                       </button>
                     </div>
                   </div>
@@ -793,17 +790,17 @@ export default function Customers({ token }) {
                           setTimeout(() => loadDetailTab("analytics", detailPartner), 0);
                         }}
                       >
-                        <option value="month">Theo tháng</option>
-                        <option value="quarter">Theo quý</option>
-                        <option value="year">Theo năm</option>
+                        <option value="month">Theo th�ng</option>
+                        <option value="quarter">Theo qu�</option>
+                        <option value="year">Theo nam</option>
                       </select>
                     </div>
 
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 16 }}>
                       {[
-                        { label: "Tổng doanh thu", value: formatCurrency(detailAnalytics.summary?.totalRevenue), color: "#1971c2" },
-                        { label: "Tổng lợi nhuận", value: formatCurrency(detailAnalytics.summary?.totalProfit), color: "#2b8a3e" },
-                        { label: "Tổng đơn hàng", value: detailAnalytics.summary?.totalOrders ?? 0, color: "#6741d9" }
+                        { label: "T?ng doanh thu", value: formatCurrency(detailAnalytics.summary?.totalRevenue), color: "#1971c2" },
+                        { label: "T?ng l?i nhu?n", value: formatCurrency(detailAnalytics.summary?.totalProfit), color: "#2b8a3e" },
+                        { label: "T?ng don h�ng", value: detailAnalytics.summary?.totalOrders ?? 0, color: "#6741d9" }
                       ].map(({ label, value, color }) => (
                         <div key={label} style={{ padding: "12px 16px", border: `1px solid #dee2e6`, borderTop: `3px solid ${color}`, borderRadius: 8, background: "#fff" }}>
                           <div style={{ fontSize: "0.75em", color: "#666", marginBottom: 4 }}>{label}</div>
@@ -817,10 +814,10 @@ export default function Customers({ token }) {
                         <table className="data-table" style={{ margin: 0 }}>
                           <thead>
                             <tr>
-                              <th>Kỳ</th>
+                              <th>K?</th>
                               <th className="text-right">Doanh thu</th>
-                              <th className="text-right">Lợi nhuận</th>
-                              <th className="text-right">Số đơn</th>
+                              <th className="text-right">L?i nhu?n</th>
+                              <th className="text-right">S? don</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -841,16 +838,16 @@ export default function Customers({ token }) {
 
                     {detailAnalytics.priceList?.length > 0 && (
                       <>
-                        <h4 style={{ margin: "0 0 8px" }}>Bảng giá riêng</h4>
+                        <h4 style={{ margin: "0 0 8px" }}>B?ng gi� ri�ng</h4>
                         <div className="table-container" style={{ margin: 0 }}>
                           <table className="data-table" style={{ margin: 0 }}>
                             <thead>
                               <tr>
                                 <th>SKU</th>
-                                <th>Sản phẩm</th>
-                                <th className="text-right">Giá mặc định</th>
-                                <th className="text-right">Giá riêng</th>
-                                <th>Cập nhật</th>
+                                <th>S?n ph?m</th>
+                                <th className="text-right">Gi� m?c d?nh</th>
+                                <th className="text-right">Gi� ri�ng</th>
+                                <th>C?p nh?t</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -889,14 +886,14 @@ export default function Customers({ token }) {
             onSubmit={handleSubmit}
           >
             <div className="dialog-header">
-              <h2>{editingPartner ? "Chỉnh sửa khách hàng" : "Tạo khách hàng mới"}</h2>
-              <button type="button" className="close-btn" onClick={handleCloseDialog} aria-label="Đóng">✕</button>
+              <h2>{editingPartner ? "Ch?nh s?a kh�ch h�ng" : "T?o kh�ch h�ng m?i"}</h2>
+              <button type="button" className="close-btn" onClick={handleCloseDialog} aria-label="��ng">?</button>
             </div>
 
             <div className="dialog-body">
               {!editingPartner && (
                 <div className="form-group">
-                  <label>Mã khách hàng *</label>
+                  <label>M� kh�ch h�ng *</label>
                   <input
                     type="text"
                     required
@@ -908,18 +905,18 @@ export default function Customers({ token }) {
               )}
 
               <div className="form-group">
-                <label>Tên khách hàng *</label>
+                <label>T�n kh�ch h�ng *</label>
                 <input
                   type="text"
                   required
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="Nhập tên khách hàng"
+                  placeholder="Nh?p t�n kh�ch h�ng"
                 />
               </div>
 
               <div className="form-group">
-                <label>Điện thoại 1</label>
+                <label>�i?n tho?i 1</label>
                 <input
                   type="tel"
                   value={formData.phone}
@@ -929,7 +926,7 @@ export default function Customers({ token }) {
               </div>
 
               <div className="form-group">
-                <label>Điện thoại 2</label>
+                <label>�i?n tho?i 2</label>
                 <input
                   type="tel"
                   value={formData.phone2}
@@ -939,7 +936,7 @@ export default function Customers({ token }) {
               </div>
 
               <div className="form-group">
-                <label>Điện thoại 3</label>
+                <label>�i?n tho?i 3</label>
                 <input
                   type="tel"
                   value={formData.phone3}
@@ -959,23 +956,23 @@ export default function Customers({ token }) {
               </div>
 
               <div className="form-group">
-                <label>Địa chỉ</label>
+                <label>�?a ch?</label>
                 <textarea
                   value={formData.address}
                   onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                  placeholder="Nhập địa chỉ"
+                  placeholder="Nh?p d?a ch?"
                   rows="2"
                 />
               </div>
 
               <div className="form-group">
-                <label>Cửa hàng sở hữu *</label>
+                <label>C?a h�ng s? h?u *</label>
                 <select
                   required
                   value={formData.ownerStoreId}
                   onChange={(e) => setFormData({ ...formData, ownerStoreId: e.target.value })}
                 >
-                  <option value="">-- Chọn cửa hàng --</option>
+                  <option value="">-- Ch?n c?a h�ng --</option>
                   {stores.map((store) => (
                     <option key={store.id} value={store.id}>{store.code} - {store.name}</option>
                   ))}
@@ -983,12 +980,12 @@ export default function Customers({ token }) {
               </div>
 
               <div className="form-group">
-                <label>Vị trí phụ trách</label>
+                <label>V? tr� ph? tr�ch</label>
                 <select
                   value={formData.accountOwnerPositionId}
                   onChange={(e) => setFormData({ ...formData, accountOwnerPositionId: e.target.value })}
                 >
-                  <option value="">-- Không gán --</option>
+                  <option value="">-- Kh�ng g�n --</option>
                   {positions.map((position) => (
                     <option key={position.id} value={position.id}>{position.code} - {position.name}</option>
                   ))}
@@ -996,24 +993,24 @@ export default function Customers({ token }) {
               </div>
 
               <div className="form-group">
-                <label>Loại khách hàng (áp dụng giá)</label>
+                <label>Lo?i kh�ch h�ng (�p d?ng gi�)</label>
                 <select
                   value={formData.customerPriceTier}
                   onChange={(e) => setFormData({ ...formData, customerPriceTier: e.target.value })}
                 >
-                  <option value="">-- Mặc định (null) --</option>
-                  <option value="LEVEL_2">Cấp 2</option>
-                  <option value="LEVEL_2_SPECIAL">Cấp 2 đặc biệt</option>
+                  <option value="">-- M?c d?nh (null) --</option>
+                  <option value="LEVEL_2">C?p 2</option>
+                  <option value="LEVEL_2_SPECIAL">C?p 2 d?c bi?t</option>
                 </select>
               </div>
 
               <div className="form-group">
-                <label>Khu vực kinh doanh</label>
+                <label>Khu v?c kinh doanh</label>
                 <select
                   value={formData.businessAreaId}
                   onChange={(e) => setFormData({ ...formData, businessAreaId: e.target.value })}
                 >
-                  <option value="">-- Không gán --</option>
+                  <option value="">-- Kh�ng g�n --</option>
                   {businessAreas.map((area) => (
                     <option key={area.id} value={area.id}>{area.label}</option>
                   ))}
@@ -1022,7 +1019,7 @@ export default function Customers({ token }) {
 
               {!editingPartner && (
                 <div className="form-group">
-                  <label>Số dư nợ đầu kỳ</label>
+                  <label>S? du n? d?u k?</label>
                   <input
                     type="text"
                     inputMode="numeric"
@@ -1036,9 +1033,9 @@ export default function Customers({ token }) {
             </div>
 
             <div className="dialog-footer">
-              <button type="button" className="btn-cancel" onClick={handleCloseDialog}>Hủy</button>
+              <button type="button" className="btn-cancel" onClick={handleCloseDialog}>H?y</button>
               <button type="submit" className="btn-primary">
-                {editingPartner ? "Cập nhật" : "Tạo mới"}
+                {editingPartner ? "C?p nh?t" : "T?o m?i"}
               </button>
             </div>
           </form>
