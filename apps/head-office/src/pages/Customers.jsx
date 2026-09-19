@@ -103,6 +103,8 @@ export default function Customers({ token }) {
   const [page, setPage] = useState(1);
   const [pageSize] = useState(50);
   const [total, setTotal] = useState(0);
+  const [exporting, setExporting] = useState(false);
+  const [exportingProducts, setExportingProducts] = useState(false);
 
   // Create / Edit dialog
   const [showDialog, setShowDialog] = useState(false);
@@ -348,12 +350,15 @@ export default function Customers({ token }) {
   const hasDebtCount = partners.filter(p => Number(p.netBalance) > 0).length;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
-  const downloadCustomersCsv = () => {
+  const downloadCustomersCsv = async () => {
+    if (exporting) return;
+
     const escapeCsv = (value) => {
       const raw = String(value ?? "");
       if (/[",\n]/.test(raw)) return `"${raw.replace(/"/g, '""')}"`;
       return raw;
     };
+
     const normalizePhoneForExport = (value) => {
       const digits = String(value ?? "").replace(/\D/g, "");
       if (!digits) return "";
@@ -361,34 +366,192 @@ export default function Customers({ token }) {
       if (digits.startsWith("84")) return `0${digits.slice(2)}`;
       return `0${digits}`;
     };
+
     const toExcelTextCell = (value) => {
       const text = String(value ?? "").replace(/"/g, '""');
       return text ? `="${text}"` : "";
     };
-    const rows = [...filteredPartners]
-      .sort((a, b) => Number(b.netBalance || 0) - Number(a.netBalance || 0))
-      .map((partner) => [
-        partner.name || "",
-        partner.ledgerCode || "",
-        toExcelTextCell(normalizePhoneForExport(partner.phone)),
-        toExcelTextCell(normalizePhoneForExport(partner.phone2)),
-        toExcelTextCell(normalizePhoneForExport(partner.phone3)),
-        partner.address || "",
-        partner.businessArea?.name || "",
-        Number(partner.netBalance || 0),
-        Number(partner.totalRevenue ?? partner.revenue ?? 0)
-      ]);
-    const headers = ["T�n kh�ch h�ng", "M� s? g?c", "�i?n tho?i 1", "�i?n tho?i 2", "�i?n tho?i 3", "�?a ch?", "Khu v?c kinh doanh", "N? hi?n t?i", "Doanh thu"];
-    const csv = "\ufeff" + [headers.map(escapeCsv).join(","), ...rows.map((row) => row.map(escapeCsv).join(","))].join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "danh-sach-khach-hang.csv";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+
+    try {
+      setExporting(true);
+
+      const exportPageSize = 100;
+      let exportPage = 1;
+      let totalPages = null;
+      const seenIds = new Set();
+      const allCustomers = [];
+
+      while (exportPage <= 1000) {
+        const response = await api.getPartners(token, {
+          page: exportPage,
+          pageSize: exportPageSize
+        }, { raw: true });
+
+        const pageRows = Array.isArray(response?.data)
+          ? response.data
+          : (Array.isArray(response) ? response : []);
+        const nextTotal = Number(response?.total);
+        if (Number.isFinite(nextTotal) && nextTotal >= 0) {
+          totalPages = Math.max(1, Math.ceil(nextTotal / exportPageSize));
+        }
+        const customerRows = pageRows.filter((partner) => partner?.isCustomer);
+
+        customerRows.forEach((partner) => {
+          const partnerId = String(partner?.id || "").trim();
+          if (!partnerId || seenIds.has(partnerId)) return;
+          seenIds.add(partnerId);
+          allCustomers.push(partner);
+        });
+
+        if (!pageRows.length) break;
+        if (totalPages && exportPage >= totalPages) break;
+        if (!totalPages && pageRows.length < exportPageSize) break;
+        exportPage += 1;
+      }
+
+      const rows = allCustomers
+        .sort((a, b) => Number(b.netBalance || 0) - Number(a.netBalance || 0))
+        .map((partner) => {
+          const phoneText = normalizePhoneForExport(partner.phone || "");
+          const phone2Text = normalizePhoneForExport(partner.phone2 || "");
+          const phone3Text = normalizePhoneForExport(partner.phone3 || "");
+          const currentDebt = Number(partner.netBalance || 0);
+          const revenue = Number(partner.totalRevenue ?? partner.revenue ?? 0);
+          return [
+            partner.name || "",
+            partner.ledgerCode || "",
+            toExcelTextCell(phoneText),
+            toExcelTextCell(phone2Text),
+            toExcelTextCell(phone3Text),
+            partner.address || "",
+            partner.businessArea?.name || "",
+            currentDebt,
+            revenue
+          ];
+        });
+
+      if (!rows.length) {
+        alert("Không có dữ liệu khách hàng để xuất");
+        return;
+      }
+
+      const headers = ["Tên khách hàng", "Mã sổ gốc", "Điện thoại 1", "Điện thoại 2", "Điện thoại 3", "Địa chỉ", "Khu vực kinh doanh", "Nợ hiện tại", "Doanh thu"];
+      const csv = "\ufeff" + [
+        headers.map(escapeCsv).join(","),
+        ...rows.map((row) => row.map(escapeCsv).join(","))
+      ].join("\n");
+
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "danh-sach-khach-hang.csv";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      alert(`Lỗi xuất file: ${error.message}`);
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const downloadAllProductsCsv = async () => {
+    if (exportingProducts) return;
+
+    const escapeCsv = (value) => {
+      const raw = String(value ?? "");
+      if (/[",\n]/.test(raw)) {
+        return `"${raw.replace(/"/g, '""')}"`;
+      }
+      return raw;
+    };
+
+    try {
+      setExportingProducts(true);
+
+      const exportPageSize = 200;
+      let exportPage = 1;
+      let previousUniqueCount = -1;
+      const seenIds = new Set();
+      const allProducts = [];
+
+      while (exportPage <= 1000) {
+        const response = await api.getProducts(token, {
+          page: exportPage,
+          pageSize: exportPageSize
+        });
+
+        const pageRows = Array.isArray(response)
+          ? response
+          : (Array.isArray(response?.data) ? response.data : []);
+
+        pageRows.forEach((product) => {
+          const productId = String(product?.id || "").trim();
+          if (!productId || seenIds.has(productId)) return;
+          seenIds.add(productId);
+          allProducts.push(product);
+        });
+
+        if (!pageRows.length) break;
+        if (allProducts.length === previousUniqueCount) break;
+        if (pageRows.length < exportPageSize) break;
+
+        previousUniqueCount = allProducts.length;
+        exportPage += 1;
+      }
+
+      if (!allProducts.length) {
+        alert("Không có dữ liệu sản phẩm để xuất");
+        return;
+      }
+
+      const productIds = allProducts.map((product) => product.id).filter(Boolean);
+      const latestPriceByProductId = {};
+      const chunkSize = 100;
+
+      for (let start = 0; start < productIds.length; start += chunkSize) {
+        const chunkIds = productIds.slice(start, start + chunkSize);
+        const chunkMap = await api.getLatestProductPurchasePrices(token, chunkIds);
+        Object.assign(latestPriceByProductId, chunkMap || {});
+      }
+
+      const rows = allProducts
+        .sort((a, b) => String(a.sku || "").localeCompare(String(b.sku || ""), "vi", { sensitivity: "base", numeric: true }))
+        .map((product) => {
+          const salePrice = Number(product.salePrice ?? product.defaultPrice ?? 0);
+          const latestPurchasePrice = latestPriceByProductId[product.id];
+          return [
+            product.sku || "",
+            product.name || "",
+            product.category?.name || "",
+            product.unit || "",
+            salePrice,
+            Number.isFinite(Number(latestPurchasePrice)) ? Number(latestPurchasePrice) : ""
+          ];
+        });
+
+      const headers = ["Mã sản phẩm", "Tên sản phẩm", "Ngành hàng", "Đơn vị", "Giá bán", "Giá mua gần nhất"];
+      const csv = "\ufeff" + [
+        headers.map(escapeCsv).join(","),
+        ...rows.map((row) => row.map(escapeCsv).join(","))
+      ].join("\n");
+
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "danh-sach-toan-bo-san-pham.csv";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      alert(`Lỗi xuất file sản phẩm: ${error.message}`);
+    } finally {
+      setExportingProducts(false);
+    }
   };
 
   return (
@@ -401,8 +564,11 @@ export default function Customers({ token }) {
           </p>
         </div>
         <div className="page-header-actions">
-          <button className="btn-cancel" type="button" onClick={downloadCustomersCsv}>
-            Xu?t file kh�ch h�ng
+          <button className="btn-cancel" type="button" onClick={downloadAllProductsCsv} disabled={exportingProducts}>
+            {exportingProducts ? "Đang xuất sản phẩm..." : "Xuất CSV toàn bộ sản phẩm"}
+          </button>
+          <button className="btn-cancel" type="button" onClick={downloadCustomersCsv} disabled={exporting}>
+            {exporting ? "Đang xuất toàn bộ..." : "Xuất toàn bộ khách hàng"}
           </button>
           <button className="btn-primary" type="button" onClick={() => handleOpenDialog()}>
             + Th�m kh�ch h�ng

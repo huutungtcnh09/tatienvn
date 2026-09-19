@@ -301,6 +301,21 @@ export async function getProducts(token, params = {}) {
   return body?.data ?? body;
 }
 
+export async function getLatestProductPurchasePrices(token, productIds = []) {
+  const normalizedIds = Array.isArray(productIds)
+    ? [...new Set(productIds.map((id) => String(id || "").trim()).filter(Boolean))]
+    : [];
+  if (!normalizedIds.length) return {};
+
+  const res = await fetch(
+    `${API_BASE}/products/latest-purchase-prices?productIds=${normalizedIds.map(encodeURIComponent).join(",")}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!res.ok) return {};
+  const body = await res.json().catch(() => null);
+  return body?.data ?? body ?? {};
+}
+
 export async function getProductById(token, id) {
   const res = await fetch(`${API_BASE}/products/${id}`, {
     headers: { Authorization: `Bearer ${token}` }
@@ -436,7 +451,7 @@ export async function bulkImportProducts(token, rows, options = {}) {
 }
 
 // ==================== PARTNERS (CUSTOMERS) ====================
-export async function getPartners(token, params = {}) {
+export async function getPartners(token, params = {}, options = {}) {
   const qs = new URLSearchParams();
   if (params.search) qs.set("search", params.search);
   if (params.page) qs.set("page", String(params.page));
@@ -447,6 +462,7 @@ export async function getPartners(token, params = {}) {
   });
   if (!res.ok) throw new Error("Không tải được danh sách khách hàng");
   const body = await res.json().catch(() => null);
+  if (options?.raw) return body;
   return body?.data ?? body;
 }
 
