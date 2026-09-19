@@ -721,31 +721,42 @@ router.post("/", requirePermission("orders:create"), async (req: AuthRequest, re
     const debtAmount = Math.max(totalAmount - paidAmount, 0);
     const recognizeDebtNow = shouldRecognizeDebtOnCreate(payload);
 
-    if (!payload.asDraft) {
+    const trackedItemQtyByProductId = new Map<string, number>();
     for (const item of resolvedItems) {
       if (!isStockTrackedProduct(productTypeMap.get(item.productId))) {
         continue;
       }
+      trackedItemQtyByProductId.set(item.productId, (trackedItemQtyByProductId.get(item.productId) || 0) + item.quantity);
+    }
 
-      const inventory = await prisma.inventory.findUnique({
+    if (!payload.asDraft && trackedItemQtyByProductId.size > 0) {
+      const trackedProductIds = [...trackedItemQtyByProductId.keys()];
+      const inventoryRows = await prisma.inventory.findMany({
         where: {
-          productId_storeId: {
-            productId: item.productId,
-            storeId: resolvedStoreId
-          }
+          storeId: resolvedStoreId,
+          productId: { in: trackedProductIds }
+        },
+        select: {
+          productId: true,
+          quantity: true,
+          reservedQuantity: true
         }
       });
+      const inventoryByProductId = new Map(inventoryRows.map((row) => [row.productId, row]));
 
-      if (!inventory) {
-        return badRequest(res, `Inventory not found for product ${item.productId}`);
-      }
+      for (const productId of trackedProductIds) {
+        const inventory = inventoryByProductId.get(productId);
+        if (!inventory) {
+          return badRequest(res, `Inventory not found for product ${productId}`);
+        }
 
-      const available = inventory.quantity - inventory.reservedQuantity;
-      if (item.quantity > available) {
-        return badRequest(res, `Not enough inventory for product ${item.productId}`);
+        const available = inventory.quantity - inventory.reservedQuantity;
+        const requested = trackedItemQtyByProductId.get(productId) || 0;
+        if (requested > available) {
+          return badRequest(res, `Not enough inventory for product ${productId}`);
+        }
       }
     }
-  }
 
     const orderStatus = payload.asDraft
     ? "DRAFT"
@@ -806,29 +817,27 @@ router.post("/", requirePermission("orders:create"), async (req: AuthRequest, re
     });
 
       if (payload.isReserved || recognizeDebtNow) {
-        for (const item of resolvedItems) {
-          if (!isStockTrackedProduct(productTypeMap.get(item.productId))) {
-            continue;
-          }
-
+        for (const [productId, quantity] of trackedItemQtyByProductId) {
           await tx.inventory.update({
             where: {
               productId_storeId: {
-                productId: item.productId,
+                productId,
                 storeId: resolvedStoreId
               }
             },
             data: payload.isReserved
-              ? { reservedQuantity: { increment: item.quantity } }
-              : { quantity: { decrement: item.quantity } }
+              ? { reservedQuantity: { increment: quantity } }
+              : { quantity: { decrement: quantity } }
           });
         }
       }
 
+    const rewardPointByProductId = new Map(
+      createdOrder.items.map((orderItem) => [orderItem.productId, Number(orderItem.product?.rewardPoints || 0)])
+    );
     const rewardPointIncrease = resolvedItems.reduce((sum, item) => {
       if (item.isGift) return sum;
-      const product = createdOrder.items.find((orderItem) => orderItem.productId === item.productId)?.product;
-      return sum + (Number(product?.rewardPoints || 0) * item.quantity);
+      return sum + ((rewardPointByProductId.get(item.productId) || 0) * item.quantity);
     }, 0);
 
     const partnerUpdate: {
@@ -921,12 +930,7 @@ router.post("/", requirePermission("orders:create"), async (req: AuthRequest, re
       });
     }
 
-    const refreshedOrder = await tx.salesOrder.findUnique({
-      where: { id: createdOrder.id },
-      include: orderInclude
-    });
-
-    return refreshedOrder || createdOrder;
+    return createdOrder;
   });
 
     return created(res, normalizeOrderReceivableFields(order), "Sales order created");

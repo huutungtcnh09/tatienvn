@@ -1821,6 +1821,21 @@ router.post("/", requirePermission("purchases:create"), async (req: StoreScopedR
         }
       : null;
 
+    const itemMetaByProductId = itemMeta.reduce((map, line) => {
+      const current = map.get(line.productId);
+      if (current) {
+        current.quantity += line.quantity;
+        current.lineAmount = roundMoney(current.lineAmount + line.lineAmount);
+      } else {
+        map.set(line.productId, {
+          productId: line.productId,
+          quantity: line.quantity,
+          lineAmount: roundMoney(line.lineAmount)
+        });
+      }
+      return map;
+    }, new Map<string, { productId: string; quantity: number; lineAmount: number }>());
+
     const result = await prisma.$transaction(async (tx) => {
       const purchaseOrder = await tx.purchaseOrder.create({
         data: {
@@ -1862,58 +1877,62 @@ router.post("/", requirePermission("purchases:create"), async (req: StoreScopedR
         }
       });
 
-      if (hasItems && resolvedStore) {
-        for (const line of itemMeta) {
-          const product = productsById.get(line.productId);
+      if (hasItems && resolvedStore && itemMetaByProductId.size > 0) {
+        const inventoryRows = await tx.inventory.findMany({
+          where: {
+            storeId: resolvedStore.id,
+            productId: { in: [...itemMetaByProductId.keys()] }
+          }
+        });
+        const inventoryByProductId = new Map(inventoryRows.map((row) => [row.productId, row]));
+
+        for (const aggregatedLine of itemMetaByProductId.values()) {
+          const product = productsById.get(aggregatedLine.productId);
           if (!product) {
-            throw new Error(`Product ${line.productId} not found`);
+            throw new Error(`Product ${aggregatedLine.productId} not found`);
           }
 
-          const inventory = await tx.inventory.findUnique({
-            where: {
-              productId_storeId: {
-                productId: line.productId,
-                storeId: resolvedStore.id
-              }
-            }
-          });
+          const inventory = inventoryByProductId.get(aggregatedLine.productId);
 
           const oldQty = inventory?.quantity || 0;
           const oldCost = Number(product.costPrice || 0);
-          const newQty = oldQty + line.quantity;
+          const newQty = oldQty + aggregatedLine.quantity;
+          const avgUnitCost = aggregatedLine.quantity > 0
+            ? roundMoney(aggregatedLine.lineAmount / aggregatedLine.quantity)
+            : 0;
           const newCost = newQty > 0
-            ? roundMoney(((oldQty * oldCost) + (line.quantity * line.unitCost)) / newQty)
-            : roundMoney(line.unitCost);
+            ? roundMoney(((oldQty * oldCost) + aggregatedLine.lineAmount) / newQty)
+            : avgUnitCost;
 
           if (inventory) {
             await tx.inventory.update({
               where: { id: inventory.id },
-              data: { quantity: { increment: line.quantity } }
+              data: { quantity: { increment: aggregatedLine.quantity } }
             });
           } else {
             await tx.inventory.create({
               data: {
-                productId: line.productId,
+                productId: aggregatedLine.productId,
                 storeId: resolvedStore.id,
-                quantity: line.quantity,
+                quantity: aggregatedLine.quantity,
                 reservedQuantity: 0
               }
             });
           }
 
           await tx.product.update({
-            where: { id: line.productId },
+            where: { id: aggregatedLine.productId },
             data: { costPrice: newCost }
           });
 
           await tx.inventoryMovement.create({
             data: {
-              productId: line.productId,
+              productId: aggregatedLine.productId,
               storeId: resolvedStore.id,
               movementType: "PURCHASE_RECEIPT",
-              quantityDelta: line.quantity,
-              unitCost: line.unitCost,
-              totalCost: line.lineAmount,
+              quantityDelta: aggregatedLine.quantity,
+              unitCost: avgUnitCost,
+              totalCost: aggregatedLine.lineAmount,
               referenceType: "PURCHASE_ORDER",
               referenceId,
               note: `Nhap kho tu don mua ${referenceId}`
