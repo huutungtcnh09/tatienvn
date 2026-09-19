@@ -387,10 +387,12 @@ export default function Customers({ token }) {
           pageSize: exportPageSize
         }, { raw: true });
 
-        const pageRows = Array.isArray(response?.data)
-          ? response.data
-          : (Array.isArray(response) ? response : []);
-        const nextTotal = Number(response?.total);
+        const pageRows = Array.isArray(response?.data?.data)
+          ? response.data.data
+          : Array.isArray(response?.data)
+            ? response.data
+            : (Array.isArray(response) ? response : []);
+        const nextTotal = Number(response?.data?.total ?? response?.total);
         if (Number.isFinite(nextTotal) && nextTotal >= 0) {
           totalPages = Math.max(1, Math.ceil(nextTotal / exportPageSize));
         }
